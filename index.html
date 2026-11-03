@@ -64,6 +64,10 @@ button:disabled{opacity:.45;cursor:default}
 .stage canvas{display:block;width:100%;height:auto}
 .stage video{position:absolute;inset:0;width:100%;height:100%;opacity:.01;pointer-events:none}
 .hint{font-weight:600}
+.banner{position:absolute;left:8px;right:8px;bottom:8px;padding:10px 12px;border-radius:10px;font-weight:700;font-size:16px;text-align:center;color:#fff;background:rgba(20,27,32,.78);transition:background .25s}
+.banner.hold{background:rgba(182,123,5,.92)}
+.banner.go{background:#13a35a;box-shadow:0 0 0 3px rgba(19,163,90,.35),0 0 24px rgba(53,224,138,.7)}
+.banner.bad{background:rgba(207,61,28,.92)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;border-radius:0;padding:8px 12px;font-size:14px}
 .seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
@@ -125,9 +129,9 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
   <section class="card" aria-labelledby="t-go">
     <h2 id="t-go">Filmer</h2>
     <div class="actions">
-      <label class="btn primary big">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
-      <label class="btn">Choisir une vidéo<input id="fLib" type="file" accept="video/*"></label>
-      <button id="bLive" type="button">Caméra en direct</button>
+      <button id="bLive" type="button" class="primary big">Caméra en direct</button>
+      <label class="btn">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
+      <label class="btn">Importer depuis la photothèque<input id="fLib" type="file" accept="video/*"></label>
     </div>
     <p class="warnbox" id="liveMsg" hidden></p>
     <details>
@@ -148,7 +152,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
       <button type="button" id="bCancel" style="flex:0 0 auto">Fermer</button>
     </div>
     <p class="hint" id="hint">Touchez le disque ou la pastille au bout de la barre.</p>
-    <div class="stage" id="stage"><canvas id="cv" width="640" height="360"></canvas></div>
+    <div class="stage" id="stage"><canvas id="cv" width="640" height="360"></canvas><div class="banner" id="banner" hidden aria-live="polite"></div></div>
     <label class="field" id="scrubWrap"><span class="lbl">Image de départ</span><input id="scrub" type="range" min="0" max="1000" value="0"></label>
     <div class="row" id="calRow">
       <div class="seg" role="group" aria-label="Calibration" style="flex:0 0 auto">
@@ -253,8 +257,13 @@ function rgb2hsv(r,g,b){
   if(h<0) h+=360; return [h, mx===0?0:d/mx, mx];
 }
 class Tracker {
-  constructor(img, x, y){
+  constructor(img, x, y, colModel){
     this.W = img.width; this.H = img.height;
+    if(colModel){
+      this.col = Object.assign({}, colModel);
+      const blob = this.flood(img, Math.round(x), Math.round(y));
+      if(blob && blob.n >= 20){ this.mode="color"; this.n0=blob.n; this.bw=blob.w; this.bh=blob.h; this.x=blob.cx; this.y=blob.cy; this.blob=blob; this.px=this.x; this.py=this.y; this.lost=0; return; }
+    }
     const d = img.data, hs=[], ss=[], vs=[];
     for(let j=-2;j<=2;j++) for(let i=-2;i<=2;i++){
       const px = Math.min(this.W-1,Math.max(0,Math.round(x)+i)), py = Math.min(this.H-1,Math.max(0,Math.round(y)+j));
@@ -428,7 +437,7 @@ function closeStage(){
   running=false;
   if(src?.stream) src.stream.getTracks().forEach(t=>t.stop());
   if(src?.video){ try{ src.video.pause(); }catch(e){} if(src.url) URL.revokeObjectURL(src.url); src.video.remove(); }
-  src=null; $("stageCard").hidden=true; releaseWake();
+  src=null; $("stageCard").hidden=true; $("banner").hidden=true; releaseWake();
 }
 $("bCancel").onclick = closeStage;
 
@@ -470,7 +479,7 @@ $("bLive").onclick = async ()=>{
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",frameRate:{ideal:60},width:{ideal:1280}},audio:false});
   }catch(e){
     $("liveMsg").hidden=false;
-    $("liveMsg").textContent="La caméra en direct n'est pas autorisée dans cette page. Utilisez « Filmer une série » : l'appareil photo s'ouvre, vous filmez la série, et l'analyse démarre dès que vous validez la vidéo.";
+    $("liveMsg").textContent="La caméra n'a pas pu s'ouvrir. Vérifiez que Safari a le droit d'utiliser la caméra (Réglages › Safari › Caméra), puis réessayez. Sinon, utilisez « Filmer une série ».";
     return;
   }
   closeStage(); openStage();
@@ -478,11 +487,9 @@ $("bLive").onclick = async ()=>{
   video.srcObject=stream; $("stage").appendChild(video); await video.play();
   const [w,h]=sizeFor(video.videoWidth, video.videoHeight); cv.width=w; cv.height=h;
   src={kind:"live",video,stream,w,h};
-  $("scrubWrap").hidden=true; $("bGo").textContent="Démarrer la série";
-  setHint("Placez le téléphone, puis touchez le disque ou la pastille.");
-  holdWake();
-  const loop=()=>{ if(!src||src.kind!=="live"||running) return; if(!tapPt){ setupImg=grabFrom(video,w,h); redrawSetup(); } requestAnimationFrame(loop); };
-  loop();
+  $("scrubWrap").hidden=true; $("bGo").textContent="Démarrer maintenant";
+  setHint("Posez le téléphone de profil. Touchez le disque s'il n'est pas repéré tout seul.");
+  holdWake(); liveLoop();
 };
 
 /* ---------- Choix du repère et calibration ---------- */
@@ -503,6 +510,8 @@ cv.addEventListener("click", ev=>{
 function initTracker(){
   if(!tapPt||!setupImg) return;
   tracker=new Tracker(setupImg, tapPt.x, tapPt.y);
+  if(tracker.mode==="color"){ S.plateColor = tracker.col; save(); }
+  okSince=null;
   if(tracker.mode==="template" && calMode==="auto") setCal("two");
   updateCal(); redrawSetup();
 }
@@ -594,22 +603,78 @@ function finishSet(mpp, origin){
   $("resCard").scrollIntoView({behavior:"smooth",block:"start"});
 }
 
+/* Boucle du direct : repérage du disque, stabilité, puis enregistrement automatique */
+let okSince=null, lostSince=null, liveT0=0, liveK=0;
+function banner(state, text){ const b=$("banner"); b.hidden=false; b.className="banner "+state; b.textContent=text; }
+function liveLoop(){
+  okSince=null; lostSince=null; liveK=0;
+  const v=src.video, hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+  const t0=performance.now();
+  const next=()=> hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
+  const onFrame=(now,meta)=>{
+    if(!src||src.kind!=="live"||src.video!==v) return;
+    const tm = meta? meta.mediaTime : (performance.now()-t0)/1000;
+    const img=grabFrom(v,src.w,src.h); setupImg=img;
+    const nowMs=performance.now();
+    if(!tracker){
+      const found = S.plateColor ? autoFind(img, S.plateColor) : null;
+      if(found){ tapPt=found; tracker=new Tracker(img, found.x, found.y, S.plateColor); setCal("auto"); updateCal(); }
+      ctx.putImageData(img,0,0); drawOverlay();
+      banner("wait", S.plateColor? "Recherche du disque… touchez-le s'il n'est pas repéré" : "Touchez le disque pour le sélectionner");
+      return next();
+    }
+    const r=tracker.update(img);
+    if(running){
+      samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
+      ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
+      if(r.ok){ lostSince=null; banner("go","Barre prise en compte · à vous !"); }
+      else { lostSince = lostSince ?? nowMs; if(nowMs-lostSince>400) banner("bad","Disque perdu · vérifiez le cadrage"); }
+      if(++liveK%5===0) liveCheck(mppNow());
+      return next();
+    }
+    ctx.putImageData(img,0,0); drawOverlay();
+    if(r.ok){
+      lostSince=null; okSince = okSince ?? nowMs;
+      const ready = isFinite(mppNow());
+      if(!ready) banner("wait","Disque repéré · complétez la calibration");
+      else if(nowMs-okSince < 1500) banner("hold","Disque repéré · ne touchez plus le téléphone…");
+      else { startLive(); banner("go","C'est bon, la barre est prise en compte · à vous !"); say("C'est prêt, à vous.", true); }
+    } else {
+      okSince=null; lostSince = lostSince ?? nowMs;
+      banner("bad","Disque non visible · vérifiez le cadrage");
+      if(S.plateColor && tracker.mode==="color" && nowMs-lostSince>2000){ tracker=null; tapPt=null; }
+    }
+    next();
+  };
+  next();
+}
+// Cherche dans l'image le plus grand objet rond de la couleur du disque mémorisée
+function autoFind(img, col){
+  const W=img.width, H=img.height, d=img.data, st=4, gw=Math.ceil(W/st), gh=Math.ceil(H/st);
+  const probe={col, match:Tracker.prototype.match};
+  const m=new Uint8Array(gw*gh);
+  for(let gy=0;gy<gh;gy++) for(let gx=0;gx<gw;gx++){ const k=((gy*st)*W+gx*st)*4; if(probe.match(d,k)) m[gy*gw+gx]=1; }
+  const seen=new Uint8Array(gw*gh); let best=null;
+  for(let i=0;i<m.length;i++){
+    if(!m[i]||seen[i]) continue;
+    const q=[i]; seen[i]=1; const cells=[]; let x0=gw,x1=0,y0=gh,y1=0;
+    while(q.length){ const p=q.pop(); cells.push(p); const x=p%gw, y=(p/gw)|0; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+      for(const n of [p-1,p+1,p-gw,p+gw]){ if(n<0||n>=m.length||seen[n]||!m[n]) continue; if(Math.abs(n%gw-x)>1) continue; seen[n]=1; q.push(n);} }
+    const bw=x1-x0+1, bh=y1-y0+1, ratio=bw/bh, fill=cells.length/(bw*bh);
+    if(cells.length<12 || ratio<0.6 || ratio>1.65 || fill<0.4) continue;
+    if(!best || cells.length>best.n){
+      const cx=(x0+x1)/2, cy=(y0+y1)/2; let bc=cells[0], bd=Infinity;
+      for(const c of cells){ const dd=(c%gw-cx)**2+(((c/gw)|0)-cy)**2; if(dd<bd){bd=dd;bc=c;} }
+      best={n:cells.length, x:(bc%gw)*st, y:((bc/gw)|0)*st};
+    }
+  }
+  return best;
+}
 function startLive(){
   const mpp=mppNow(); if(!isFinite(mpp)) return;
   running=true; samples=[]; liveSpoken=0; liveStopSaid=false;
-  $("bGo").textContent="Terminer la série"; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
+  $("bGo").textContent="Terminer la série"; $("bGo").disabled=false; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
   setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
-  const v=src.video, t0=performance.now(); let k=0;
-  const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
-  const onFrame=(now,meta)=>{
-    if(!running||!src) return;
-    const tm = meta? meta.mediaTime : (performance.now()-t0)/1000;
-    const img=grabFrom(v,src.w,src.h); const r=tracker.update(img); samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
-    ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
-    if(++k%5===0) liveCheck(mpp);
-    hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
-  };
-  hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
 }
 function liveCheck(mpp){
   const res=analyze(samples, mpp, S.exo, true);
