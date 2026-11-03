@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vitesse barre">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}</style>
+</head>
+<body>
+<title>Vitesse de barre</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: une colonne de poche, comme le minuteur : réglages, prise de vue, puis la série répétition par répétition. */
+:root{
+  --bg:#eef1f3; --surface:#ffffff; --sunk:#e2e7ea; --fg:#141b20; --muted:#5a6870; --line:#d2d9dd;
+  --accent:#2f56d6; --ok:#14836a; --warn:#b67b05; --bad:#cf3d1c;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0c1114; --surface:#151d22; --sunk:#0f161a; --fg:#e5ecef; --muted:#93a3ab; --line:#263239;
+  --accent:#7e9bff; --ok:#3cc49f; --warn:#e8b23e; --bad:#ff7a55; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1114; --surface:#151d22; --sunk:#0f161a; --fg:#e5ecef; --muted:#93a3ab; --line:#263239;
+  --accent:#7e9bff; --ok:#3cc49f; --warn:#e8b23e; --bad:#ff7a55; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45}
+.wrap{max-width:600px;margin:0 auto;padding-block:16px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:700;font-size:30px;margin:0;text-transform:uppercase;letter-spacing:.01em;line-height:1}
+h2{font-family:var(--display);font-weight:600;font-size:20px;text-transform:uppercase;letter-spacing:.03em;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.lbl{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+button,.btn{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;padding:10px 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center}
+button:focus-visible,.btn:focus-within,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+.chips button{padding:8px 13px;border-radius:99px;font-size:14px}
+.chips button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field input,.field select{font:inherit;padding:9px 10px;border-radius:9px;border:1px solid var(--line);background:var(--sunk);color:var(--fg);width:100%}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 auto}
+.toggle{display:flex;align-items:center;gap:8px;font-size:14px}
+.toggle input{width:20px;height:20px;accent-color:var(--accent)}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.actions .big{grid-column:1/-1;font-family:var(--display);font-size:22px;text-transform:uppercase;letter-spacing:.03em;padding:14px}
+.btn input{display:none}
+.note{font-size:13px;color:var(--muted);margin:0}
+.warnbox{font-size:13px;border-left:3px solid var(--warn);padding:8px 10px;background:var(--sunk);border-radius:0 8px 8px 0;margin:0}
+
+.stage{position:relative;border-radius:12px;overflow:hidden;background:#000;touch-action:manipulation}
+.stage canvas{display:block;width:100%;height:auto}
+.stage video{position:absolute;inset:0;width:100%;height:100%;opacity:.01;pointer-events:none}
+.hint{font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:8px 12px;font-size:14px}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+progress{width:100%;height:8px;accent-color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+
+.livebig{font-family:var(--display);font-weight:700;font-size:72px;line-height:1;text-align:center;font-variant-numeric:tabular-nums}
+.livebig small{font-size:22px;color:var(--muted);font-weight:500}
+
+.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (max-width:420px){.sum{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--sunk);border-radius:10px;padding:8px 10px;min-width:0}
+.stat b{display:block;font-family:var(--display);font-size:26px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:99px;background:var(--sunk);color:var(--muted)}
+.badge.demo{background:var(--warn);color:#1a1200}
+.reps{display:flex;flex-direction:column;gap:6px}
+.rep{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--sunk);border-left:4px solid var(--muted)}
+.rep.ok{border-left-color:var(--ok)}.rep.warn{border-left-color:var(--warn)}.rep.bad{border-left-color:var(--bad)}
+.rep .n{font-family:var(--display);font-size:20px;font-weight:700;color:var(--muted)}
+.rep .v{font-family:var(--display);font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.rep .v small{font-family:var(--body);font-size:12px;color:var(--muted);font-weight:500;margin-left:4px}
+.rep .bar{height:6px;border-radius:3px;background:var(--line);margin-top:5px;overflow:hidden}
+.rep .bar i{display:block;height:100%;background:var(--accent)}
+.rep .det{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;line-height:1.35}
+.chart{width:100%;height:auto;display:block;border-radius:10px;background:var(--sunk)}
+.hist{display:flex;flex-direction:column;gap:6px}
+.hrow{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 10px;background:var(--sunk);border-radius:10px;font-size:14px;font-variant-numeric:tabular-nums;cursor:pointer;text-align:left;border:0;width:100%;font-weight:400}
+.hrow b{font-weight:600}
+details summary{cursor:pointer;font-weight:600}
+details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Vitesse de barre</h1>
+    <span class="sub" id="status">Vitesse concentrique par répétition</span>
+  </header>
+
+  <section class="card" aria-labelledby="t-set">
+    <h2 id="t-set">Exercice</h2>
+    <div class="chips" id="exos"></div>
+    <div class="grid2">
+      <label class="field"><span class="lbl">Charge (kg)</span><input id="load" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
+      <label class="field"><span class="lbl">Vitesse affichée</span>
+        <select id="metric">
+          <option value="mcv">Moyenne concentrique</option>
+          <option value="mpv">Moyenne propulsive</option>
+          <option value="peak">Pic de vitesse</option>
+        </select></label>
+      <label class="field"><span class="lbl">Zone cible min (m/s)</span><input id="zmin" type="number" inputmode="decimal" step="0.05" min="0" placeholder="ex. 0.50"></label>
+      <label class="field"><span class="lbl">Zone cible max (m/s)</span><input id="zmax" type="number" inputmode="decimal" step="0.05" min="0" placeholder="ex. 0.75"></label>
+      <label class="field"><span class="lbl">Arrêt si perte de vitesse ≥ (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
+      <label class="field"><span class="lbl">Diamètre du disque (cm)</span><input id="diam" type="number" inputmode="decimal" min="10" max="60" step="0.5" placeholder="45"></label>
+    </div>
+    <label class="toggle"><input id="voice" type="checkbox" checked> Annonce vocale des vitesses</label>
+  </section>
+
+  <section class="card" aria-labelledby="t-go">
+    <h2 id="t-go">Filmer</h2>
+    <div class="actions">
+      <label class="btn primary big">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
+      <label class="btn">Choisir une vidéo<input id="fLib" type="file" accept="video/*"></label>
+      <button id="bLive" type="button">Caméra en direct</button>
+    </div>
+    <p class="warnbox" id="liveMsg" hidden></p>
+    <details>
+      <summary>Comment filmer pour une mesure fiable</summary>
+      <ol>
+        <li>Téléphone fixe (trépied ou posé), à hauteur de barre, à 2–3 m, <b>bien de profil</b> : le disque doit apparaître comme un cercle, pas une ellipse.</li>
+        <li>Repère à suivre : un disque de couleur vive (bumper rouge, bleu, jaune, vert) ou une pastille fluo collée au bout du manchon. Un disque noir marche aussi, un peu moins bien.</li>
+        <li>Tout le mouvement doit rester dans le cadre, y compris le haut de la barre en fin de répétition.</li>
+        <li>Calibration : touchez le disque coloré, l'app mesure son diamètre (45 cm par défaut). Sinon, touchez deux points dont vous connaissez la distance.</li>
+        <li>Si possible, filmez en 60 images/s : le pic de vitesse sera plus juste.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="card" id="stageCard" hidden aria-labelledby="t-stage">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="t-stage" style="flex:0 1 auto">Repère et calibration</h2>
+      <button type="button" id="bCancel" style="flex:0 0 auto">Fermer</button>
+    </div>
+    <p class="hint" id="hint">Touchez le disque ou la pastille au bout de la barre.</p>
+    <div class="stage" id="stage"><canvas id="cv" width="640" height="360"></canvas></div>
+    <label class="field" id="scrubWrap"><span class="lbl">Image de départ</span><input id="scrub" type="range" min="0" max="1000" value="0"></label>
+    <div class="row" id="calRow">
+      <div class="seg" role="group" aria-label="Calibration" style="flex:0 0 auto">
+        <button type="button" id="cAuto" aria-pressed="true">Disque entier</button>
+        <button type="button" id="cTwo" aria-pressed="false">Deux points</button>
+      </div>
+      <label class="field" id="twoWrap" hidden style="flex:1 1 120px"><span class="lbl">Distance entre les 2 points (cm)</span><input id="twoDist" type="number" inputmode="decimal" min="1" step="0.5" value="45"></label>
+    </div>
+    <p class="note" id="calInfo"></p>
+    <progress id="prog" max="1" value="0" hidden></progress>
+    <div class="livebig" id="liveBig" hidden>–<small> m/s</small></div>
+    <div class="row">
+      <button type="button" class="primary" id="bGo" disabled>Analyser la série</button>
+    </div>
+  </section>
+
+  <section class="card" id="resCard" aria-labelledby="t-res">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="t-res" style="flex:0 1 auto">Résultats</h2>
+      <span class="badge" id="resBadge" style="flex:0 0 auto">Exemple simulé</span>
+    </div>
+    <p class="note" id="resMeta"></p>
+    <div class="sum" id="sum"></div>
+    <div class="reps" id="reps"></div>
+    <div>
+      <div class="lbl" style="margin-bottom:6px">Vitesse de la barre (m/s) dans le temps</div>
+      <canvas class="chart" id="chartV" width="680" height="300"></canvas>
+    </div>
+    <div>
+      <div class="lbl" style="margin-bottom:6px">Trajectoire de la barre</div>
+      <canvas class="chart" id="chartP" width="640" height="360"></canvas>
+    </div>
+    <div class="row">
+      <button type="button" id="bSpeak">Relire à voix haute</button>
+      <button type="button" id="bDemo">Rejouer la démo</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="t-hist">
+    <h2 id="t-hist">Séries enregistrées</h2>
+    <div class="hist" id="hist"></div>
+    <p class="note" id="histEmpty">Vos séries analysées apparaîtront ici, sur ce téléphone.</p>
+  </section>
+</div>
+
+<script>
+"use strict";
+/* ---------- Réglages ---------- */
+const EXOS = {
+  squat:{name:"Squat",rom:0.20,metric:"mcv"},
+  hip:{name:"Hip thrust",rom:0.07,metric:"mcv"},
+  rdl:{name:"RDL",rom:0.15,metric:"mcv"},
+  bench:{name:"Développé couché",rom:0.12,metric:"mcv"},
+  dl:{name:"Soulevé de terre",rom:0.20,metric:"mcv"},
+  cj:{name:"Épaulé-jeté",rom:0.25,metric:"peak"},
+  sn:{name:"Arraché",rom:0.35,metric:"peak"}
+};
+const METRIC_NAME = {mcv:"moyenne concentrique",mpv:"moyenne propulsive",peak:"pic"};
+const KEY = "vbt.v1";
+let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,history:[]};
+try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.parse(raw)); }catch(e){}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+const $ = id => document.getElementById(id);
+const num = (x,d=2) => (isFinite(x)? x.toFixed(d).replace(".",",") : "–");
+const pf = s => { const v = parseFloat(String(s).replace(",", ".")); return isFinite(v)? v : NaN; };
+
+function renderExos(){
+  const box = $("exos"); box.textContent = "";
+  for(const [k,e] of Object.entries(EXOS)){
+    const b = document.createElement("button"); b.type="button"; b.textContent=e.name;
+    b.setAttribute("aria-pressed", String(S.exo===k));
+    b.onclick = () => { S.exo=k; S.metric = e.metric; $("metric").value=S.metric; save(); renderExos(); };
+    box.appendChild(b);
+  }
+}
+function bindField(id, key, isCheck){
+  const el = $(id);
+  if(isCheck) el.checked = !!S[key]; else el.value = S[key] ?? "";
+  el.addEventListener("change", () => { S[key] = isCheck? el.checked : el.value; save(); if(lastResult) renderResult(lastResult); });
+}
+renderExos();
+bindField("load","load"); bindField("metric","metric"); bindField("zmin","zmin"); bindField("zmax","zmax");
+bindField("vloss","vloss"); bindField("diam","diam"); bindField("voice","voice",true);
+
+/* ---------- Voix ---------- */
+let voiceFr = null;
+function pickVoice(){ const vs = speechSynthesis.getVoices(); voiceFr = vs.find(v=>/^fr(-|_)FR/i.test(v.lang)) || vs.find(v=>/^fr/i.test(v.lang)) || null; }
+if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function say(text, interrupt){
+  if(!S.voice || !("speechSynthesis" in window)) return;
+  if(interrupt) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text); u.lang="fr-FR"; u.rate=1.05; if(voiceFr) u.voice=voiceFr;
+  speechSynthesis.speak(u);
+}
+function unlockVoice(){ if("speechSynthesis" in window){ const u=new SpeechSynthesisUtterance(""); u.volume=0; speechSynthesis.speak(u);} }
+const spokenNum = x => x.toFixed(2).replace(".", ",");
+
+/* ---------- Suivi du repère ---------- */
+function rgb2hsv(r,g,b){
+  r/=255; g/=255; b/=255; const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
+  let h=0; if(d>0){ if(mx===r) h=60*(((g-b)/d)%6); else if(mx===g) h=60*((b-r)/d+2); else h=60*((r-g)/d+4); }
+  if(h<0) h+=360; return [h, mx===0?0:d/mx, mx];
+}
+class Tracker {
+  constructor(img, x, y){
+    this.W = img.width; this.H = img.height;
+    const d = img.data, hs=[], ss=[], vs=[];
+    for(let j=-2;j<=2;j++) for(let i=-2;i<=2;i++){
+      const px = Math.min(this.W-1,Math.max(0,Math.round(x)+i)), py = Math.min(this.H-1,Math.max(0,Math.round(y)+j));
+      const k=(py*this.W+px)*4; const [h,s,v]=rgb2hsv(d[k],d[k+1],d[k+2]); hs.push(h); ss.push(s); vs.push(v);
+    }
+    const med = a => a.slice().sort((p,q)=>p-q)[a.length>>1];
+    // teinte moyenne circulaire
+    let cx=0, cy=0; hs.forEach(h=>{cx+=Math.cos(h*Math.PI/180); cy+=Math.sin(h*Math.PI/180);});
+    const h0 = (Math.atan2(cy,cx)*180/Math.PI+360)%360, s0=med(ss), v0=med(vs);
+    this.mode = null;
+    if(s0 > 0.32 && v0 > 0.18){
+      this.col = {h:h0, ht:18, smin:Math.max(0.2,s0*0.45), vmin:Math.max(0.1,v0*0.35)};
+      const blob = this.flood(img, Math.round(x), Math.round(y));
+      if(blob && blob.n >= 20){
+        this.mode = "color"; this.n0 = blob.n; this.bw = blob.w; this.bh = blob.h;
+        this.x = blob.cx; this.y = blob.cy; this.blob = blob;
+      }
+    }
+    if(!this.mode){
+      this.mode = "template"; this.r = 14; this.x = x; this.y = y;
+      this.tpl = this.patch(this.gray(img), x, y, this.r);
+    }
+    this.px = this.x; this.py = this.y; this.lost = 0;
+  }
+  match(d,k){
+    const [h,s,v] = rgb2hsv(d[k],d[k+1],d[k+2]);
+    if(s < this.col.smin || v < this.col.vmin) return false;
+    let dh = Math.abs(h - this.col.h); if(dh>180) dh = 360-dh; return dh <= this.col.ht;
+  }
+  flood(img, x, y){
+    const W=this.W, H=this.H, d=img.data, seen=new Uint8Array(W*H), st=[];
+    // graine : pixel correspondant le plus proche du toucher
+    let seed=-1;
+    for(let r=0;r<=8 && seed<0;r++) for(let j=-r;j<=r && seed<0;j++) for(let i=-r;i<=r;i++){
+      const px=x+i, py=y+j; if(px<0||py<0||px>=W||py>=H) continue;
+      if(this.match(d,(py*W+px)*4)){ seed=py*W+px; break; }
+    }
+    if(seed<0) return null;
+    st.push(seed); seen[seed]=1;
+    let n=0,sx=0,sy=0,x0=W,x1=0,y0=H,y1=0; const lim=W*H*0.25;
+    while(st.length){
+      const p=st.pop(), px=p%W, py=(p/W)|0; n++; sx+=px; sy+=py;
+      if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py;
+      if(n>lim) return null;
+      const nb=[p-1,p+1,p-W,p+W];
+      for(const q of nb){ if(q<0||q>=W*H||seen[q]) continue; const qx=q%W; if(Math.abs(qx-px)>1) continue; seen[q]=1; if(this.match(d,q*4)) st.push(q); }
+    }
+    return {n, cx:sx/n, cy:sy/n, w:x1-x0+1, h:y1-y0+1, x0,x1,y0,y1};
+  }
+  gray(img){ const d=img.data, g=new Float32Array(img.width*img.height); for(let i=0,k=0;i<g.length;i++,k+=4) g[i]=0.299*d[k]+0.587*d[k+1]+0.114*d[k+2]; return g; }
+  patch(g, x, y, r){
+    const W=this.W, s=2*r+1, p=new Float32Array(s*s); let m=0;
+    for(let j=0;j<s;j++) for(let i=0;i<s;i++){ const px=Math.min(W-1,Math.max(0,Math.round(x)-r+i)), py=Math.min(this.H-1,Math.max(0,Math.round(y)-r+j)); const v=g[py*W+px]; p[j*s+i]=v; m+=v; }
+    m/=p.length; let q=0; for(let i=0;i<p.length;i++){ p[i]-=m; q+=p[i]*p[i]; } p.norm=Math.sqrt(q)||1; return p;
+  }
+  update(img){
+    const vx = this.x - this.px, vy = this.y - this.py;
+    const ex = this.x + vx, ey = this.y + vy;
+    let res;
+    if(this.mode==="color") res = this.updColor(img, ex, ey); else res = this.updTpl(img, ex, ey);
+    if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true}; }
+    this.lost++; this.px=this.x; this.py=this.y; this.x=ex; this.y=ey;
+    return {x:ex,y:ey,ok:false};
+  }
+  updColor(img, ex, ey){
+    const W=this.W, H=this.H, d=img.data, R=30+this.lost*10;
+    const hx=this.bw*0.8+R, hy=this.bh*0.8+R;
+    const x0=Math.max(0,Math.floor(ex-hx)), x1=Math.min(W-1,Math.ceil(ex+hx)), y0=Math.max(0,Math.floor(ey-hy)), y1=Math.min(H-1,Math.ceil(ey+hy));
+    let n=0,sx=0,sy=0,minY=H,maxY=0;
+    for(let y=y0;y<=y1;y++){ let k=(y*W+x0)*4; for(let x=x0;x<=x1;x++,k+=4){ if(this.match(d,k)){ n++; sx+=x; sy+=y; if(y<minY)minY=y; if(y>maxY)maxY=y; } } }
+    if(n < this.n0*0.3) return null;
+    return {x:sx/n, y:sy/n};
+  }
+  updTpl(img, ex, ey){
+    const g=this.gray(img), r=this.r, s=2*r+1, W=this.W, H=this.H, R=26+this.lost*8, T=this.tpl;
+    let best=-2,bx=0,by=0; const sc={};
+    for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+      const cx=Math.round(ex)+dx, cy=Math.round(ey)+dy;
+      if(cx-r<0||cy-r<0||cx+r>=W||cy+r>=H) continue;
+      let m=0; for(let j=0;j<s;j++){ let o=(cy-r+j)*W+cx-r; for(let i=0;i<s;i++) m+=g[o+i]; } m/=s*s;
+      let num=0,q=0; for(let j=0;j<s;j++){ let o=(cy-r+j)*W+cx-r, t=j*s; for(let i=0;i<s;i++){ const v=g[o+i]-m; num+=v*T[t+i]; q+=v*v; } }
+      const c = num/((Math.sqrt(q)||1)*T.norm); sc[cx+","+cy]=c;
+      if(c>best){best=c;bx=cx;by=cy;}
+    }
+    if(best<0.55) return null;
+    const f=(a,b,c)=>{ const den=a-2*b+c; return Math.abs(den)<1e-6?0:Math.max(-0.5,Math.min(0.5,0.5*(a-c)/den)); };
+    const g0=k=>sc[k]??best;
+    const ox=f(g0((bx-1)+","+by),best,g0((bx+1)+","+by)), oy=f(g0(bx+","+(by-1)),best,g0(bx+","+(by+1)));
+    if(best>0.85){ const np=this.patch(g,bx,by,r); for(let i=0;i<T.length;i++) T[i]=T[i]*0.9+np[i]*0.1; let q=0; for(let i=0;i<T.length;i++) q+=T[i]*T[i]; T.norm=Math.sqrt(q)||1; }
+    return {x:bx+ox, y:by+oy};
+  }
+}
+
+/* ---------- Calcul des vitesses ---------- */
+function quadFit(t, y, i, h){
+  // régression locale du 2e degré autour de t[i] : position lissée et vitesse
+  let S0=0,S1=0,S2=0,S3=0,S4=0,Y0=0,Y1=0,Y2=0;
+  for(let j=i; j>=0 && t[i]-t[j]<=h; j--) acc(j);
+  for(let j=i+1; j<t.length && t[j]-t[i]<=h; j++) acc(j);
+  function acc(j){ const d=t[j]-t[i], d2=d*d; S0++; S1+=d; S2+=d2; S3+=d2*d; S4+=d2*d2; Y0+=y[j]; Y1+=d*y[j]; Y2+=d2*y[j]; }
+  if(S0<4){ return null; }
+  const A=[[S0,S1,S2],[S1,S2,S3],[S2,S3,S4]], b=[Y0,Y1,Y2];
+  const det = m => m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]) - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]) + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+  const D=det(A); if(Math.abs(D)<1e-12) return null;
+  const col=(k)=>A.map((r,ri)=>r.map((v,ci)=>ci===k?b[ri]:v));
+  return [det(col(0))/D, det(col(1))/D, 2*det(col(2))/D];
+}
+function analyze(samples, mpp, exoKey, partial){
+  const P = samples.filter(s=>s.ok);
+  const n = P.length; if(n<8) return {t:[],y:[],x:[],v:[],a:[],reps:[],P};
+  const t=P.map(s=>s.t), X0=P[0].x, Y0=P[0].y;
+  const yr=P.map(s=>-(s.y-Y0)*mpp), xr=P.map(s=>(s.x-X0)*mpp);
+  const fps=(n-1)/Math.max(1e-3,t[n-1]-t[0]);
+  const h=Math.max(0.035, 2.1/fps);
+  const y=new Array(n), v=new Array(n), a=new Array(n);
+  for(let i=0;i<n;i++){ const f=quadFit(t,yr,i,h); if(f){ y[i]=f[0]; v[i]=f[1]; } else { y[i]=yr[i]; v[i]= i? (yr[i]-yr[i-1])/(t[i]-t[i-1]) : 0; } }
+  const h2=Math.max(0.07, 3.5/fps);
+  for(let i=0;i<n;i++){ const f=quadFit(t,v,i,h2); a[i]= f? f[1] : 0; }
+  const minRom = EXOS[exoKey].rom, up=0.06, rest=0.04, reps=[];
+  let i=0;
+  while(i<n){
+    if(v[i] <= up){ i++; continue; }
+    let s=i; while(s>0 && v[s-1]>rest) s--;
+    let e=i; while(e<n-1 && v[e+1]>rest) e++;
+    // fusion : courte pause (point mort) sans redescente nette
+    for(;;){
+      let k=e+1, mn=Infinity;
+      while(k<n && t[k]-t[e]<=0.25 && v[k]<=up){ mn=Math.min(mn,v[k]); k++; }
+      if(k<n && t[k]-t[e]<=0.25 && mn>-0.08){ e=k; while(e<n-1 && v[e+1]>rest) e++; } else break;
+    }
+    const rom = y[e]-y[s];
+    const complete = e < n-1 && t[n-1]-t[e] > 0.12;
+    if(rom >= minRom && (complete || !partial)){
+      let pk=s; for(let k=s;k<=e;k++) if(v[k]>v[pk]) pk=k;
+      let pe=e; for(let k=pk;k<=e;k++){ if(a[k] < -9.81){ pe=k; break; } }
+      // instants de début et de fin interpolés au passage du seuil de vitesse
+      const cross=(k0,k1)=>{ const d=v[k1]-v[k0]; return Math.abs(d)<1e-9? t[k0] : t[k0]+(rest-v[k0])/d*(t[k1]-t[k0]); };
+      const ts = s>0 ? cross(s-1,s) : t[s];
+      const te = e<n-1 ? cross(e,e+1) : t[e];
+      const dur=Math.max(1e-3,te-ts);
+      reps.push({s,e,pk,pe,t0:ts,t1:te,dur,rom,
+        mcv: rom/dur,
+        mpv: (y[pe]-y[s])/Math.max(1e-3,t[pe]-ts),
+        peak: v[pk]});
+    }
+    i=e+1;
+  }
+  return {t,y,x:xr,v,a,reps,P,fps};
+}
+
+/* ---------- Sources vidéo ---------- */
+const cv=$("cv"), ctx=cv.getContext("2d",{willReadFrequently:true});
+const work=document.createElement("canvas"), wctx=work.getContext("2d",{willReadFrequently:true});
+const MAXSIDE=640;
+let src=null;          // {kind, video?, stream?}
+let setupImg=null;     // ImageData de l'image de départ
+let tapPt=null, tracker=null, calPts=[], calMode="auto", running=false, samples=[];
+let lastResult=null, liveSpoken=0, liveStopSaid=false;
+
+function sizeFor(w,h){ const k=MAXSIDE/Math.max(w,h); return [Math.round(w*k), Math.round(h*k)]; }
+function grabFrom(el, w, h){
+  if(work.width!==w||work.height!==h){ work.width=w; work.height=h; }
+  wctx.drawImage(el,0,0,w,h); return wctx.getImageData(0,0,w,h);
+}
+function openStage(){
+  $("stageCard").hidden=false; $("prog").hidden=true; $("liveBig").hidden=true;
+  $("bGo").disabled=true; tapPt=null; tracker=null; calPts=[]; $("calInfo").textContent="";
+  $("stageCard").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function closeStage(){
+  running=false;
+  if(src?.stream) src.stream.getTracks().forEach(t=>t.stop());
+  if(src?.video){ try{ src.video.pause(); }catch(e){} if(src.url) URL.revokeObjectURL(src.url); src.video.remove(); }
+  src=null; $("stageCard").hidden=true; releaseWake();
+}
+$("bCancel").onclick = closeStage;
+
+async function loadFile(file){
+  if(!file) return;
+  unlockVoice(); closeStage(); openStage();
+  setHint("Chargement de la vidéo…");
+  const video=document.createElement("video");
+  video.muted=true; video.playsInline=true; video.setAttribute("playsinline",""); video.preload="auto";
+  const url=URL.createObjectURL(file); video.src=url;
+  $("stage").appendChild(video);
+  src={kind:"file",video,url};
+  try{
+    await new Promise((res,rej)=>{ video.onloadeddata=res; video.onerror=()=>rej(new Error("format")); setTimeout(()=>rej(new Error("timeout")),15000); });
+  }catch(e){ setHint("Impossible de lire cette vidéo sur ce téléphone. Essayez de la refilmer avec « Filmer une série »."); return; }
+  const [w,h]=sizeFor(video.videoWidth, video.videoHeight); src.w=w; src.h=h;
+  cv.width=w; cv.height=h;
+  $("scrubWrap").hidden=false; $("scrub").value=0; $("bGo").textContent="Analyser la série";
+  await seek(0.05);
+  setHint("Touchez le disque ou la pastille au bout de la barre.");
+}
+function seek(tm){
+  const v=src.video;
+  return new Promise(res=>{ const done=()=>{ v.removeEventListener("seeked",done); setupImg=grabFrom(v,src.w,src.h); redrawSetup(); res(); };
+    v.addEventListener("seeked",done); v.currentTime=Math.min(Math.max(0,tm), Math.max(0,(v.duration||1)-0.05)); });
+}
+$("scrub").addEventListener("input", ()=>{ if(src?.kind==="file" && !running){ const d=src.video.duration||0; seek(d*$("scrub").value/1000).then(()=>{ if(tapPt) initTracker(); }); } });
+$("fCam").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
+$("fLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
+
+/* Caméra en direct (nécessite que la page soit autorisée à utiliser la caméra) */
+let wake=null;
+async function holdWake(){ try{ wake = await navigator.wakeLock?.request("screen"); }catch(e){} }
+function releaseWake(){ try{ wake?.release(); }catch(e){} wake=null; }
+$("bLive").onclick = async ()=>{
+  unlockVoice(); $("liveMsg").hidden=true;
+  let stream;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",frameRate:{ideal:60},width:{ideal:1280}},audio:false});
+  }catch(e){
+    $("liveMsg").hidden=false;
+    $("liveMsg").textContent="La caméra en direct n'est pas autorisée dans cette page. Utilisez « Filmer une série » : l'appareil photo s'ouvre, vous filmez la série, et l'analyse démarre dès que vous validez la vidéo.";
+    return;
+  }
+  closeStage(); openStage();
+  const video=document.createElement("video"); video.muted=true; video.playsInline=true; video.setAttribute("playsinline","");
+  video.srcObject=stream; $("stage").appendChild(video); await video.play();
+  const [w,h]=sizeFor(video.videoWidth, video.videoHeight); cv.width=w; cv.height=h;
+  src={kind:"live",video,stream,w,h};
+  $("scrubWrap").hidden=true; $("bGo").textContent="Démarrer la série";
+  setHint("Placez le téléphone, puis touchez le disque ou la pastille.");
+  holdWake();
+  const loop=()=>{ if(!src||src.kind!=="live"||running) return; if(!tapPt){ setupImg=grabFrom(video,w,h); redrawSetup(); } requestAnimationFrame(loop); };
+  loop();
+};
+
+/* ---------- Choix du repère et calibration ---------- */
+function setHint(t){ $("hint").textContent=t; }
+function setCal(m){ calMode=m; $("cAuto").setAttribute("aria-pressed",String(m==="auto")); $("cTwo").setAttribute("aria-pressed",String(m==="two")); $("twoWrap").hidden = m!=="two"; calPts=[]; updateCal(); redrawSetup(); }
+$("cAuto").onclick=()=>setCal("auto"); $("cTwo").onclick=()=>setCal("two");
+$("twoDist").addEventListener("input", updateCal);
+$("diam").addEventListener("input", ()=>{ S.diam=$("diam").value; updateCal(); });
+
+cv.addEventListener("click", ev=>{
+  if(running || !setupImg) return;
+  const r=cv.getBoundingClientRect(), x=(ev.clientX-r.left)*cv.width/r.width, y=(ev.clientY-r.top)*cv.height/r.height;
+  if(calMode==="two" && tapPt){
+    if(calPts.length>=2) calPts=[]; calPts.push({x,y}); updateCal(); redrawSetup(); return;
+  }
+  tapPt={x,y}; initTracker();
+});
+function initTracker(){
+  if(!tapPt||!setupImg) return;
+  tracker=new Tracker(setupImg, tapPt.x, tapPt.y);
+  if(tracker.mode==="template" && calMode==="auto") setCal("two");
+  updateCal(); redrawSetup();
+}
+function mppNow(){
+  if(!tracker) return NaN;
+  if(calMode==="auto"){
+    if(tracker.mode!=="color") return NaN;
+    const d=pf(S.diam)||45; return (d/100)/tracker.bh;
+  }
+  if(calPts.length<2) return NaN;
+  const dpx=Math.hypot(calPts[1].x-calPts[0].x, calPts[1].y-calPts[0].y);
+  const dc=pf($("twoDist").value); if(!(dpx>3)||!(dc>0)) return NaN;
+  return (dc/100)/dpx;
+}
+function updateCal(){
+  const info=$("calInfo");
+  if(!tracker){ info.textContent=""; $("bGo").disabled=true; return; }
+  const mpp=mppNow();
+  let t = tracker.mode==="color" ? `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). ` : "Repère suivi par sa texture (pas de couleur vive). ";
+  if(calMode==="auto"){
+    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${tracker.bh} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le contour vert entoure bien tout le disque.` : "";
+  } else {
+    t += calPts.length<2 ? `Touchez maintenant ${calPts.length? "le 2e point":"deux points"} dont vous connaissez la distance (ex. haut et bas du disque).` : `${num(mpp*1000,1)} mm par pixel.`;
+  }
+  info.textContent=t;
+  $("bGo").disabled = !isFinite(mpp);
+  setHint(isFinite(mpp) ? (src?.kind==="live" ? "Prêt. Appuyez sur Démarrer, puis faites votre série." : "Prêt. Choisissez l'image de départ si besoin, puis lancez l'analyse.") : "Repère choisi. Complétez la calibration.");
+}
+function css(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function redrawSetup(){
+  if(!setupImg) return;
+  ctx.putImageData(setupImg,0,0);
+  drawOverlay();
+}
+function drawOverlay(trail){
+  const lw=Math.max(2, cv.width/320);
+  if(tracker){
+    ctx.lineWidth=lw;
+    ctx.strokeStyle="#35e08a";
+    if(tracker.mode==="color" && !running && tracker.blob){ const b=tracker.blob; ctx.strokeRect(b.x0-1,b.y0-1,b.w+2,b.h+2); }
+    ctx.beginPath(); ctx.arc(tracker.x,tracker.y,6*lw/2,0,7); ctx.stroke();
+    if(tracker.mode==="template" && !running){ ctx.strokeRect(tracker.x-tracker.r,tracker.y-tracker.r,2*tracker.r+1,2*tracker.r+1); }
+  }
+  if(calMode==="two" && !running){
+    ctx.fillStyle="#ffd23a"; ctx.strokeStyle="#ffd23a"; ctx.lineWidth=lw;
+    calPts.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x,p.y,4*lw/2,0,7); ctx.fill(); });
+    if(calPts.length===2){ ctx.beginPath(); ctx.moveTo(calPts[0].x,calPts[0].y); ctx.lineTo(calPts[1].x,calPts[1].y); ctx.stroke(); }
+  }
+  if(trail && trail.length>1){
+    ctx.strokeStyle="rgba(53,224,138,.85)"; ctx.lineWidth=lw; ctx.beginPath();
+    let st=false; for(const s of trail){ if(!s.ok) continue; if(!st){ctx.moveTo(s.x,s.y); st=true;} else ctx.lineTo(s.x,s.y); } ctx.stroke();
+  }
+}
+
+/* ---------- Analyse ---------- */
+$("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ running? stopLive() : startLive(); } else runFile(); };
+
+function runFile(){
+  const v=src.video, mpp=mppNow(); if(!isFinite(mpp)) return;
+  running=true; samples=[]; $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true;
+  setHint("Analyse en cours… gardez l'écran allumé.");
+  const t0=v.currentTime, dur=v.duration||1; let lastT=-1;
+  const onFrame=(now,meta)=>{
+    if(!running) return;
+    const tm = meta? meta.mediaTime : v.currentTime;
+    if(tm>lastT+1e-4){ lastT=tm; step(tm); }
+    $("prog").value=(tm-t0)/Math.max(1e-3,dur-t0);
+    if(!v.ended) schedule();
+  };
+  const step=(tm)=>{
+    const img=grabFrom(v,src.w,src.h);
+    const r=tracker.update(img); samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
+    ctx.putImageData(img,0,0); drawOverlay(samples);
+  };
+  const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+  const schedule=()=>{ if(hasRVFC) v.requestVideoFrameCallback(onFrame); else requestAnimationFrame(()=>onFrame(0,null)); };
+  v.onended=()=>{ setTimeout(()=>{ if(running) finishSet(mpp,"vidéo"); }, 120); };
+  holdWake(); schedule();
+  v.playbackRate=1; v.play().catch(()=>{ setHint("La lecture a été bloquée. Touchez Analyser à nouveau."); running=false; $("bGo").disabled=false; });
+}
+function finishSet(mpp, origin){
+  running=false; releaseWake();
+  const res=analyze(samples, mpp, S.exo, false);
+  res.mpp=mpp; res.exo=S.exo; res.load=S.load; res.date=Date.now(); res.origin=origin; res.demo=false;
+  res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
+  res.pathImg = setupImg; res.samplesPx = samples;
+  closeStage();
+  lastResult=res; renderResult(res); storeHistory(res); speakSummary(res);
+  $("resCard").scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function startLive(){
+  const mpp=mppNow(); if(!isFinite(mpp)) return;
+  running=true; samples=[]; liveSpoken=0; liveStopSaid=false;
+  $("bGo").textContent="Terminer la série"; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
+  setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
+  const v=src.video, t0=performance.now(); let k=0;
+  const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+  const onFrame=(now,meta)=>{
+    if(!running||!src) return;
+    const tm = meta? meta.mediaTime : (performance.now()-t0)/1000;
+    const img=grabFrom(v,src.w,src.h); const r=tracker.update(img); samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
+    ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
+    if(++k%5===0) liveCheck(mpp);
+    hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
+  };
+  hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
+}
+function liveCheck(mpp){
+  const res=analyze(samples, mpp, S.exo, true);
+  while(liveSpoken < res.reps.length){
+    const rep=res.reps[liveSpoken]; liveSpoken++;
+    const val=rep[S.metric];
+    $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}</small>`;
+    let txt=spokenNum(val);
+    const best=Math.max(...res.reps.map(r=>r[S.metric])); const loss=(best-val)/best*100; const lim=pf(S.vloss);
+    if(isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim && !liveStopSaid){ txt += `. Perte de ${Math.round(loss)} pour cent. Stop.`; liveStopSaid=true; }
+    say(txt, true);
+  }
+}
+function stopLive(){ const mpp=mppNow(); finishSet(mpp, "direct"); }
+
+/* ---------- Résultats ---------- */
+function zoneOf(v){
+  const a=pf(S.zmin), b=pf(S.zmax);
+  if(!isFinite(a)&&!isFinite(b)) return "";
+  if(isFinite(a) && v<a) return v < a*0.9 ? "bad" : "warn";
+  if(isFinite(b) && v>b) return "warn";
+  return "ok";
+}
+function setStats(res){
+  const m=S.metric, vals=res.reps.map(r=>r[m]);
+  if(!vals.length) return null;
+  const best=Math.max(...vals), last=vals[vals.length-1], first=vals[0];
+  return {m, vals, best, last, first, loss:(best-last)/best*100, avg:vals.reduce((p,q)=>p+q,0)/vals.length};
+}
+function renderResult(res){
+  $("resBadge").textContent = res.demo? "Exemple simulé" : (res.origin==="direct"?"Direct":"Vidéo");
+  $("resBadge").className = "badge"+(res.demo?" demo":"");
+  const exo=EXOS[res.exo]?.name||"";
+  const d=new Date(res.date);
+  $("resMeta").textContent = `${exo}${res.load? " · "+res.load+" kg":""} · ${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} ${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · vitesse ${METRIC_NAME[S.metric]}`
+    + (res.lost>0.1? ` · Attention : repère perdu sur ${Math.round(res.lost*100)} % des images, résultats moins fiables.`:"")
+    + (res.fps && res.fps<25? ` · Vidéo à ${Math.round(res.fps)} images/s seulement.`:"");
+  const st=setStats(res), sum=$("sum"), reps=$("reps"); sum.textContent=""; reps.textContent="";
+  if(!st){
+    sum.innerHTML=""; reps.innerHTML=`<p class="note">Aucune répétition détectée. Vérifiez que le repère reste visible pendant toute la série et que la calibration est correcte. Amplitude minimale pour cet exercice : ${Math.round(EXOS[res.exo].rom*100)} cm.</p>`;
+  } else {
+    const cells=[["Répétitions",String(st.vals.length)],["Meilleure",num(st.best)],["Dernière",num(st.last)],["Perte",Math.round(st.loss)+" %"]];
+    for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
+    const lim=pf(S.vloss);
+    res.reps.forEach((r,i)=>{
+      const val=r[st.m], z=zoneOf(val), loss=(st.best-val)/st.best*100;
+      const el=document.createElement("div"); el.className="rep "+z;
+      el.innerHTML=`<span class="n">${i+1}</span>
+        <div><div class="v">${num(val)}<small>m/s${isFinite(lim)&&lim>0&&i>0&&loss>=lim?" · perte "+Math.round(loss)+" %":""}</small></div><div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
+        <div class="det">pic ${num(r.peak)}<br>${Math.round(r.rom*100)} cm · ${num(r.dur,2)} s</div>`;
+      reps.appendChild(el);
+    });
+  }
+  drawChartV(res); drawChartP(res);
+}
+function drawChartV(res){
+  const c=$("chartV"), g=c.getContext("2d"), W=c.width, H=c.height; g.clearRect(0,0,W,H);
+  const fg=css("--fg"), mu=css("--muted"), li=css("--line"), ac=css("--accent");
+  if(!res.t.length){ g.fillStyle=mu; g.font="28px sans-serif"; g.fillText("Pas de données",30,60); return; }
+  const L=58,R=12,T=30,B=40, t0=res.t[0], t1=res.t[res.t.length-1];
+  let vmax=Math.max(0.5,...res.v), vmin=Math.min(-0.5,...res.v); vmax=Math.ceil(vmax*4)/4; vmin=Math.floor(vmin*4)/4;
+  const X=t=>L+(t-t0)/(t1-t0||1)*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
+  g.font="24px Figtree, sans-serif"; g.textBaseline="middle";
+  for(let v=vmin; v<=vmax+1e-9; v+=0.25){ g.strokeStyle=li; g.lineWidth=Math.abs(v)<1e-9?2:1; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); if(Math.abs(v*2-Math.round(v*2))<1e-9){ g.fillStyle=mu; g.textAlign="right"; g.fillText(num(v,1),L-10,Y(v)); } }
+  g.textAlign="center"; g.textBaseline="top"; g.fillStyle=mu;
+  const span=t1-t0, stepT= span>40?10: span>15?5:2;
+  for(let s=Math.ceil(t0/stepT)*stepT; s<=t1; s+=stepT) g.fillText(Math.round(s-t0)+" s", X(s), H-B+10);
+  const st=setStats(res);
+  res.reps.forEach((r,i)=>{
+    const z=zoneOf(r[S.metric]); g.fillStyle= z==="bad"?css("--bad"): z==="warn"?css("--warn"): ac; g.globalAlpha=0.16;
+    g.fillRect(X(r.t0),T,X(r.t1)-X(r.t0),H-T-B); g.globalAlpha=1; g.fillStyle=fg; g.textBaseline="top"; g.fillText(String(i+1),(X(r.t0)+X(r.t1))/2,4);
+  });
+  g.strokeStyle=ac; g.lineWidth=3; g.lineJoin="round"; g.beginPath(); res.t.forEach((t,i)=>{ i?g.lineTo(X(t),Y(res.v[i])):g.moveTo(X(t),Y(res.v[i])); }); g.stroke();
+  res.reps.forEach(r=>{ g.fillStyle=ac; g.beginPath(); g.arc(X(res.t[r.pk]),Y(r.peak),6,0,7); g.fill(); });
+}
+function drawChartP(res){
+  const c=$("chartP"), g=c.getContext("2d");
+  const img=res.pathImg;
+  if(img){ c.width=img.width; c.height=img.height; g.putImageData(img,0,0); g.fillStyle="rgba(0,0,0,.45)"; g.fillRect(0,0,c.width,c.height); }
+  else { g.fillStyle=css("--sunk"); g.fillRect(0,0,c.width,c.height); }
+  const P=res.P||[]; if(!P.length) return;
+  const lw=Math.max(2,c.width/300);
+  g.lineWidth=lw; g.strokeStyle="rgba(255,255,255,.45)"; g.beginPath(); P.forEach((s,i)=> i?g.lineTo(s.x,s.y):g.moveTo(s.x,s.y)); g.stroke();
+  g.strokeStyle="#35e08a"; g.lineWidth=lw*1.6;
+  res.reps.forEach(r=>{ g.beginPath(); for(let k=r.s;k<=r.e;k++){ const s=P[k]; k===r.s?g.moveTo(s.x,s.y):g.lineTo(s.x,s.y);} g.stroke(); });
+  g.fillStyle="#fff"; g.font=`${Math.round(c.width/32)}px Figtree, sans-serif`; g.fillText("— montées (concentrique)", 12, c.height-14);
+}
+function speakSummary(res, force){
+  if(!force && res.demo) return;
+  const st=setStats(res);
+  if(!st){ say("Aucune répétition détectée.", true); return; }
+  let txt=`${st.vals.length} répétitions. `;
+  if(st.vals.length<=8) txt += st.vals.map(spokenNum).join(", ")+". ";
+  txt += `Meilleure ${spokenNum(st.best)}. Dernière ${spokenNum(st.last)}. Perte de vitesse ${Math.round(st.loss)} pour cent.`;
+  say(txt, true);
+}
+$("bSpeak").onclick=()=>{ unlockVoice(); if(lastResult) speakSummary(lastResult, true); };
+
+/* ---------- Historique ---------- */
+function storeHistory(res){
+  const st=setStats(res); if(!st) return;
+  S.history.unshift({date:res.date, exo:res.exo, load:res.load, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
+  S.history=S.history.slice(0,200); save(); renderHistory();
+}
+function renderHistory(){
+  const box=$("hist"); box.textContent=""; $("histEmpty").hidden = S.history.length>0;
+  S.history.slice(0,30).forEach(h=>{
+    const vals=h.reps.map(r=>r[S.metric]); const best=Math.max(...vals), last=vals[vals.length-1];
+    const b=document.createElement("button"); b.type="button"; b.className="hrow";
+    const d=new Date(h.date);
+    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} · ${h.reps.length} rép.</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round((best-last)/best*100)} %</span></span>`;
+    b.onclick=()=>{ say(`${EXOS[h.exo]?.name}. ${h.reps.length} répétitions. Meilleure ${spokenNum(best)}.`, true); };
+    box.appendChild(b);
+  });
+}
+renderHistory();
+
+/* ---------- Démo : série de squat simulée (6 rép., 55 cm, vitesses connues) ---------- */
+const DEMO_TRUE=[0.78,0.74,0.70,0.64,0.57,0.49];
+function demoScene(){
+  const W=640,H=360, PXM=200, fps=30, ROM=0.55;
+  // trajectoire
+  const seg=[]; let tt=0.6; const keys=[];
+  for(const mcv of DEMO_TRUE){ keys.push({t:tt,type:"down",d:1.1}); tt+=1.1; keys.push({t:tt,type:"hold",d:0.15}); tt+=0.15; const T=ROM/mcv; keys.push({t:tt,type:"up",d:T}); tt+=T; keys.push({t:tt,type:"top",d:1.0}); tt+=1.0; }
+  const total=tt+0.4;
+  function pos(t){ // hauteur en m (0 = haut)
+    for(const k of keys){ if(t>=k.t && t<k.t+k.d){ const u=(t-k.t)/k.d;
+      if(k.type==="down") return -ROM*(1-Math.cos(Math.PI*u))/2;
+      if(k.type==="hold") return -ROM;
+      if(k.type==="up") return -ROM + ROM*(1-Math.cos(Math.PI*u))/2;
+      return 0; } }
+    return 0;
+  }
+  const c=document.createElement("canvas"); c.width=W; c.height=H; const g=c.getContext("2d",{willReadFrequently:true});
+  const bg=document.createElement("canvas"); bg.width=W; bg.height=H; const b=bg.getContext("2d");
+  const gr=b.createLinearGradient(0,0,0,H); gr.addColorStop(0,"#5d6267"); gr.addColorStop(1,"#3a3d40"); b.fillStyle=gr; b.fillRect(0,0,W,H);
+  b.fillStyle="#2b2d2f"; b.fillRect(0,H-40,W,40);
+  for(let i=0;i<500;i++){ b.fillStyle=`rgba(255,255,255,${Math.random()*0.06})`; b.fillRect(Math.random()*W,Math.random()*H,2,2); }
+  b.fillStyle="#8a8f95"; b.fillRect(40,30,60,260); b.fillRect(540,30,60,260);
+  const x0=320, ytop=120;
+  function frame(t){
+    const p=pos(t), y=ytop - p*PXM + (Math.random()-.5)*0.8, x=x0 + Math.sin(t*2.1)*4 + (Math.random()-.5)*0.8;
+    g.drawImage(bg,0,0);
+    g.fillStyle="#1f2933"; g.fillRect(x-70,y-20,90,H-40-(y-20)); // silhouette
+    g.fillStyle="#c9a27e"; g.beginPath(); g.arc(x-25,y-50,22,0,7); g.fill();
+    g.fillStyle="#bfc4c9"; g.fillRect(x-120,y-4,240,8); // barre
+    g.fillStyle="#d0281e"; g.beginPath(); g.arc(x,y,45,0,7); g.fill(); // disque rouge 45 cm
+    g.fillStyle="#d8dde2"; g.beginPath(); g.arc(x,y,9,0,7); g.fill(); // manchon
+    return g.getImageData(0,0,W,H);
+  }
+  return {W,H,fps,total,frame,x0,ytop};
+}
+async function runDemo(visible){
+  const sc=demoScene();
+  const first=sc.frame(0);
+  const tr=new Tracker(first, sc.x0+30, sc.ytop+5);
+  const mpp=(0.45)/tr.bh;
+  const smp=[]; const N=Math.floor(sc.total*sc.fps);
+  if(visible){ closeStage(); openStage(); cv.width=sc.W; cv.height=sc.H; $("scrubWrap").hidden=true; $("calRow").hidden=true; $("bGo").hidden=true; setHint("Démo : suivi d'un disque rouge sur une série de squat simulée."); tracker=tr; running=true; $("prog").hidden=false; }
+  for(let i=0;i<N;i++){
+    const t=i/sc.fps, img=sc.frame(t), r=tr.update(img); smp.push({t,x:r.x,y:r.y,ok:r.ok});
+    if(visible){ ctx.putImageData(img,0,0); samples=smp; drawOverlay(smp); $("prog").value=i/N; if(i%2===0) await new Promise(r=>setTimeout(r,33)); }
+    else if(i%60===0) await new Promise(r=>setTimeout(r,0));
+  }
+  const res=analyze(smp, mpp, "squat", false);
+  Object.assign(res,{mpp, exo:"squat", load:"", date:Date.now(), origin:"demo", demo:true, lost:0, pathImg:first});
+  if(visible){ running=false; $("calRow").hidden=false; $("bGo").hidden=false; closeStage(); }
+  lastResult=res; renderResult(res);
+  window.__demo = {true:DEMO_TRUE, mcv:res.reps.map(r=>+r.mcv.toFixed(3)), peak:res.reps.map(r=>+r.peak.toFixed(3)), rom:res.reps.map(r=>+r.rom.toFixed(3)), mpp, bh:tr.bh, mode:tr.mode};
+  return res;
+}
+$("bDemo").onclick=()=>runDemo(true);
+const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("change",()=>{ if(lastResult) renderResult(lastResult); });
+runDemo(false);
+</script>
+
+</body>
+</html>
