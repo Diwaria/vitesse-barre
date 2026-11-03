@@ -64,6 +64,18 @@ button:disabled{opacity:.45;cursor:default}
 .stage canvas{display:block;width:100%;height:auto}
 .stage video{position:absolute;inset:0;width:100%;height:100%;opacity:.01;pointer-events:none}
 .hint{font-weight:600}
+.col{display:flex;flex-direction:column;gap:12px}
+.stepper{display:grid;grid-template-columns:44px 1fr 44px;gap:6px}
+.stepper button{padding:8px 0;font-size:20px}
+.stepper input{text-align:center;font-weight:700}
+.sets{display:flex;flex-direction:column;gap:6px}
+.setrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--sunk);font-variant-numeric:tabular-nums}
+.setrow .k{font-family:var(--display);font-weight:700;font-size:18px;color:var(--muted)}
+.setrow .m{font-size:14px}
+.setrow .l{font-weight:700}
+.setrow.todo{opacity:.55}
+.setrow.cur{outline:2px solid var(--accent)}
+.lossok{color:var(--ok)}.lossbad{color:var(--bad)}
 .banner{position:absolute;left:8px;right:8px;bottom:8px;padding:10px 12px;border-radius:10px;font-weight:700;font-size:16px;text-align:center;color:#fff;background:rgba(20,27,32,.78);transition:background .25s}
 .banner.hold{background:rgba(182,123,5,.92)}
 .banner.go{background:#13a35a;box-shadow:0 0 0 3px rgba(19,163,90,.35),0 0 24px rgba(53,224,138,.7)}
@@ -107,43 +119,38 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
     <span class="sub" id="status">Vitesse concentrique par répétition</span>
   </header>
 
-  <section class="card" aria-labelledby="t-set">
-    <h2 id="t-set">Exercice</h2>
-    <div class="chips" id="exos"></div>
-    <div class="grid2">
-      <label class="field"><span class="lbl">Charge (kg)</span><input id="load" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
-      <label class="field"><span class="lbl">Vitesse affichée</span>
-        <select id="metric">
-          <option value="mcv">Moyenne concentrique</option>
-          <option value="mpv">Moyenne propulsive</option>
-          <option value="peak">Pic de vitesse</option>
-        </select></label>
-      <label class="field"><span class="lbl">Zone cible min (m/s)</span><input id="zmin" type="number" inputmode="decimal" step="0.05" min="0" placeholder="ex. 0.50"></label>
-      <label class="field"><span class="lbl">Zone cible max (m/s)</span><input id="zmax" type="number" inputmode="decimal" step="0.05" min="0" placeholder="ex. 0.75"></label>
-      <label class="field"><span class="lbl">Arrêt si perte de vitesse ≥ (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
-      <label class="field"><span class="lbl">Diamètre du disque (cm)</span><input id="diam" type="number" inputmode="decimal" min="10" max="60" step="0.5" placeholder="45"></label>
+  <section class="card" id="sessCard" aria-labelledby="t-sess">
+    <div id="sessIdle" class="col">
+      <h2 id="t-sess">Séance</h2>
+      <button type="button" class="primary big" id="bSess">Commencer une séance</button>
+      <p class="note">Choisissez un exercice et un nombre de séries. Chaque série est filmée et mesurée, avec une alerte vocale quand la perte de vitesse est atteinte.</p>
     </div>
-    <label class="toggle"><input id="voice" type="checkbox" checked> Annonce vocale des vitesses</label>
-  </section>
-
-  <section class="card" aria-labelledby="t-go">
-    <h2 id="t-go">Filmer</h2>
-    <div class="actions">
-      <button id="bLive" type="button" class="primary big">Caméra en direct</button>
-      <label class="btn">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
-      <label class="btn">Importer depuis la photothèque<input id="fLib" type="file" accept="video/*"></label>
+    <div id="sessForm" class="col" hidden>
+      <h2>Nouvelle séance</h2>
+      <label class="field"><span class="lbl">Exercice</span><select id="exoSel"></select></label>
+      <div class="grid2">
+        <div class="field"><span class="lbl">Nombre de séries</span>
+          <div class="stepper"><button type="button" id="setsMinus" aria-label="Une série de moins">−</button><input id="setsN" type="number" inputmode="numeric" min="1" max="20" value="4"><button type="button" id="setsPlus" aria-label="Une série de plus">+</button></div></div>
+        <label class="field"><span class="lbl">Charge (kg)</span><input id="load" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
+        <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
+      </div>
+      <label class="toggle"><input id="voiceReps" type="checkbox" checked> Annoncer aussi la vitesse de chaque répétition</label>
+      <div class="row"><button type="button" id="sessCancel">Annuler</button><button type="button" class="primary" id="sessGo">Lancer la séance</button></div>
     </div>
-    <p class="warnbox" id="liveMsg" hidden></p>
-    <details>
-      <summary>Comment filmer pour une mesure fiable</summary>
-      <ol>
-        <li>Téléphone fixe (trépied ou posé), à hauteur de barre, à 2–3 m, <b>bien de profil</b> : le disque doit apparaître comme un cercle, pas une ellipse.</li>
-        <li>Repère à suivre : un disque de couleur vive (bumper rouge, bleu, jaune, vert) ou une pastille fluo collée au bout du manchon. Un disque noir marche aussi, un peu moins bien.</li>
-        <li>Tout le mouvement doit rester dans le cadre, y compris le haut de la barre en fin de répétition.</li>
-        <li>Calibration : touchez le disque coloré, l'app mesure son diamètre (45 cm par défaut). Sinon, touchez deux points dont vous connaissez la distance.</li>
-        <li>Si possible, filmez en 60 images/s : le pic de vitesse sera plus juste.</li>
-      </ol>
-    </details>
+    <div id="sessRun" class="col" hidden>
+      <div class="row" style="justify-content:space-between;align-items:baseline">
+        <h2 id="sessTitle" style="flex:0 1 auto"></h2>
+        <span class="badge" id="sessCount" style="flex:0 0 auto"></span>
+      </div>
+      <div class="sets" id="sessSets"></div>
+      <div class="actions" id="sessActions">
+        <button type="button" class="primary big" id="sessLive"></button>
+        <label class="btn">Filmer<input id="sCam" type="file" accept="video/*" capture="environment"></label>
+        <label class="btn">Photothèque<input id="sLib" type="file" accept="video/*"></label>
+      </div>
+      <p class="warnbox" id="sessMsg" hidden></p>
+      <button type="button" id="sessEnd">Terminer la séance</button>
+    </div>
   </section>
 
   <section class="card" id="stageCard" hidden aria-labelledby="t-stage">
@@ -191,6 +198,43 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
     </div>
   </section>
 
+  <section class="card" aria-labelledby="t-go">
+    <h2 id="t-go">Mesure rapide</h2>
+    <p class="note" style="margin:0">Une série isolée, hors séance, avec l'exercice et la charge de la dernière séance.</p>
+    <div class="actions">
+      <button id="bLive" type="button" class="primary big">Caméra en direct</button>
+      <label class="btn">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
+      <label class="btn">Importer depuis la photothèque<input id="fLib" type="file" accept="video/*"></label>
+    </div>
+    <p class="warnbox" id="liveMsg" hidden></p>
+    <details>
+      <summary>Comment filmer pour une mesure fiable</summary>
+      <ol>
+        <li>Téléphone fixe (trépied ou posé), à hauteur de barre, à 2–3 m, <b>bien de profil</b> : le disque doit apparaître comme un cercle, pas une ellipse.</li>
+        <li>Repère à suivre : un disque de couleur vive (bumper rouge, bleu, jaune, vert) ou une pastille fluo collée au bout du manchon. Un disque noir marche aussi, un peu moins bien.</li>
+        <li>Tout le mouvement doit rester dans le cadre, y compris le haut de la barre en fin de répétition.</li>
+        <li>Calibration : touchez le disque coloré, l'app mesure son diamètre (45 cm par défaut). Sinon, touchez deux points dont vous connaissez la distance.</li>
+        <li>Si possible, filmez en 60 images/s : le pic de vitesse sera plus juste.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="card" aria-labelledby="t-set">
+    <h2 id="t-set">Réglages</h2>
+    <div class="grid2">
+      <label class="field"><span class="lbl">Vitesse affichée</span>
+        <select id="metric">
+          <option value="mcv">Moyenne concentrique</option>
+          <option value="mpv">Moyenne propulsive</option>
+          <option value="peak">Pic de vitesse</option>
+        </select></label>
+      <label class="field"><span class="lbl">Zone cible min (m/s)</span><input id="zmin" type="number" inputmode="decimal" step="0.05" min="0" placeholder="ex. 0.50"></label>
+      <label class="field"><span class="lbl">Zone cible max (m/s)</span><input id="zmax" type="number" inputmode="decimal" step="0.05" min="0" placeholder="ex. 0.75"></label>
+      <label class="field"><span class="lbl">Diamètre du disque (cm)</span><input id="diam" type="number" inputmode="decimal" min="10" max="60" step="0.5" placeholder="45"></label>
+    </div>
+    <label class="toggle"><input id="voice" type="checkbox" checked> Annonces vocales</label>
+  </section>
+
   <section class="card" aria-labelledby="t-hist">
     <h2 id="t-hist">Séries enregistrées</h2>
     <div class="hist" id="hist"></div>
@@ -202,17 +246,21 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
 "use strict";
 /* ---------- Réglages ---------- */
 const EXOS = {
-  squat:{name:"Squat",rom:0.20,metric:"mcv"},
-  hip:{name:"Hip thrust",rom:0.07,metric:"mcv"},
-  rdl:{name:"RDL",rom:0.15,metric:"mcv"},
-  bench:{name:"Développé couché",rom:0.12,metric:"mcv"},
-  dl:{name:"Soulevé de terre",rom:0.20,metric:"mcv"},
-  cj:{name:"Épaulé-jeté",rom:0.25,metric:"peak"},
-  sn:{name:"Arraché",rom:0.35,metric:"peak"}
+  squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv"},
+  fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv"},
+  hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv"},
+  rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv"},
+  dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv"},
+  bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv"},
+  ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv"},
+  row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv"},
+  clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"peak"},
+  cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"peak"},
+  sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"peak"}
 };
 const METRIC_NAME = {mcv:"moyenne concentrique",mpv:"moyenne propulsive",peak:"pic"};
 const KEY = "vbt.v1";
-let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,history:[]};
+let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,voiceReps:true,history:[],sess:null};
 try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.parse(raw)); }catch(e){}
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 const $ = id => document.getElementById(id);
@@ -220,13 +268,17 @@ const num = (x,d=2) => (isFinite(x)? x.toFixed(d).replace(".",",") : "–");
 const pf = s => { const v = parseFloat(String(s).replace(",", ".")); return isFinite(v)? v : NaN; };
 
 function renderExos(){
-  const box = $("exos"); box.textContent = "";
-  for(const [k,e] of Object.entries(EXOS)){
-    const b = document.createElement("button"); b.type="button"; b.textContent=e.name;
-    b.setAttribute("aria-pressed", String(S.exo===k));
-    b.onclick = () => { S.exo=k; S.metric = e.metric; $("metric").value=S.metric; save(); renderExos(); };
-    box.appendChild(b);
+  const sel=$("exoSel"); sel.textContent="";
+  const cats={};
+  for(const [k,e] of Object.entries(EXOS)){ (cats[e.cat] ||= []).push([k,e]); }
+  for(const [c,list] of Object.entries(cats)){
+    const g=document.createElement("optgroup"); g.label=c;
+    for(const [k,e] of list){ const o=document.createElement("option"); o.value=k; o.textContent=e.name; g.appendChild(o); }
+    sel.appendChild(g);
   }
+  if(!EXOS[S.exo]) S.exo="squat";
+  sel.value=S.exo;
+  sel.onchange=()=>{ S.exo=sel.value; S.metric=EXOS[S.exo].metric; $("metric").value=S.metric; save(); };
 }
 function bindField(id, key, isCheck){
   const el = $(id);
@@ -235,7 +287,7 @@ function bindField(id, key, isCheck){
 }
 renderExos();
 bindField("load","load"); bindField("metric","metric"); bindField("zmin","zmin"); bindField("zmax","zmax");
-bindField("vloss","vloss"); bindField("diam","diam"); bindField("voice","voice",true);
+bindField("vloss","vloss"); bindField("diam","diam"); bindField("voice","voice",true); bindField("voiceReps","voiceReps",true);
 
 /* ---------- Voix ---------- */
 let voiceFr = null;
@@ -599,8 +651,9 @@ function finishSet(mpp, origin){
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
   closeStage();
-  lastResult=res; renderResult(res); storeHistory(res); speakSummary(res);
-  $("resCard").scrollIntoView({behavior:"smooth",block:"start"});
+  lastResult=res; renderResult(res); storeHistory(res);
+  if(S.sess && !S.sess.over){ addSetToSess(res); }
+  else { speakSummary(res); $("resCard").scrollIntoView({behavior:"smooth",block:"start"}); }
 }
 
 /* Boucle du direct : repérage du disque, stabilité, puis enregistrement automatique */
@@ -627,9 +680,10 @@ function liveLoop(){
     if(running){
       samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
       ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
-      if(r.ok){ lostSince=null; banner("go","Barre prise en compte · à vous !"); }
+      if(r.ok){ lostSince=null; if(!liveStopSaid) banner("go","Barre prise en compte · à vous !"); }
       else { lostSince = lostSince ?? nowMs; if(nowMs-lostSince>400) banner("bad","Disque perdu · vérifiez le cadrage"); }
       if(++liveK%5===0) liveCheck(mppNow());
+      if(liveSpoken>0 && tm-lastRepT>8){ say("Série terminée.", false); stopLive(); return; }
       return next();
     }
     ctx.putImageData(img,0,0); drawOverlay();
@@ -672,20 +726,22 @@ function autoFind(img, col){
 }
 function startLive(){
   const mpp=mppNow(); if(!isFinite(mpp)) return;
-  running=true; samples=[]; liveSpoken=0; liveStopSaid=false;
+  running=true; samples=[]; liveSpoken=0; liveStopSaid=false; lastRepT=0;
   $("bGo").textContent="Terminer la série"; $("bGo").disabled=false; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
   setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
 }
+let lastRepT=0;
 function liveCheck(mpp){
   const res=analyze(samples, mpp, S.exo, true);
   while(liveSpoken < res.reps.length){
-    const rep=res.reps[liveSpoken]; liveSpoken++;
+    const rep=res.reps[liveSpoken]; liveSpoken++; lastRepT=rep.t1;
     const val=rep[S.metric];
-    $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}</small>`;
-    let txt=spokenNum(val);
     const best=Math.max(...res.reps.map(r=>r[S.metric])); const loss=(best-val)/best*100; const lim=pf(S.vloss);
-    if(isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim && !liveStopSaid){ txt += `. Perte de ${Math.round(loss)} pour cent. Stop.`; liveStopSaid=true; }
-    say(txt, true);
+    $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}${liveSpoken>1? " · perte "+Math.round(loss)+" %":""}</small>`;
+    const hit = isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim && !liveStopSaid;
+    let txt = S.voiceReps ? spokenNum(val) : "";
+    if(hit){ txt += (txt? ". ":"") + `Perte de vitesse de ${Math.round(loss)} pour cent. Arrête la série.`; liveStopSaid=true; banner("bad",`Perte de vitesse ${Math.round(loss)} % · arrête la série`); }
+    if(txt) say(txt, true);
   }
 }
 function stopLive(){ const mpp=mppNow(); finishSet(mpp, "direct"); }
@@ -772,6 +828,69 @@ function speakSummary(res, force){
   say(txt, true);
 }
 $("bSpeak").onclick=()=>{ unlockVoice(); if(lastResult) speakSummary(lastResult, true); };
+
+/* ---------- Séance ---------- */
+function setSummary(reps){
+  const vals=reps.map(r=>r[S.metric]); if(!vals.length) return {n:0};
+  const best=Math.max(...vals), last=vals[vals.length-1];
+  const lim=pf(S.vloss); let hitAt=0;
+  vals.forEach((v,i)=>{ if(!hitAt && i>0 && isFinite(lim) && lim>0 && (best-v)/best*100>=lim) hitAt=i+1; });
+  return {n:vals.length,best,last,loss:(best-last)/best*100,hitAt};
+}
+function addSetToSess(res){
+  const ss=S.sess, k=ss.done.length+1;
+  ss.done.push({date:res.date, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
+  const sm=setSummary(res.reps);
+  let txt = sm.n ? `Série ${k} : ${sm.n} répétitions. Meilleure ${spokenNum(sm.best)}. Perte ${Math.round(sm.loss)} pour cent.` : `Série ${k} : aucune répétition détectée.`;
+  if(sm.hitAt) txt += ` Seuil atteint à la répétition ${sm.hitAt}.`;
+  if(ss.done.length>=ss.sets){ ss.over=true; txt += " Séance terminée, bravo."; }
+  else txt += ` Prochaine : série ${k+1}.`;
+  save(); renderSess(); say(txt, true);
+  $("sessCard").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function renderSess(){
+  const ss=S.sess;
+  $("sessIdle").hidden=!!ss; $("sessRun").hidden=!ss; if(!ss) return;
+  $("sessForm").hidden=true;
+  $("sessTitle").textContent=`${EXOS[ss.exo]?.name||""}${ss.load? " · "+ss.load+" kg":""}`;
+  const k=ss.done.length;
+  $("sessCount").textContent = ss.over? "Terminée" : `Série ${k+1} / ${ss.sets}`;
+  const box=$("sessSets"); box.textContent="";
+  for(let i=0;i<Math.max(ss.sets,k);i++){
+    const d=ss.done[i], row=document.createElement("div");
+    row.className="setrow"+(d?"":(i===k && !ss.over?" cur":" todo"));
+    if(d){
+      const sm=setSummary(d.reps);
+      row.innerHTML = sm.n ? `<span class="k">S${i+1}</span><span class="m">${sm.n} rép. · meilleure <b>${num(sm.best)}</b> · dernière <b>${num(sm.last)}</b> m/s</span><span class="l ${sm.hitAt?"lossbad":"lossok"}">−${Math.round(sm.loss)} %</span>`
+                           : `<span class="k">S${i+1}</span><span class="m">aucune répétition détectée</span><span></span>`;
+    } else row.innerHTML=`<span class="k">S${i+1}</span><span class="m">${i===k?"à filmer":"à venir"}</span><span></span>`;
+    box.appendChild(row);
+  }
+  $("sessActions").hidden=!!ss.over;
+  $("sessLive").textContent=`Série ${k+1} en direct`;
+  $("sessEnd").textContent= ss.over? "Fermer la séance" : "Terminer la séance";
+}
+$("bSess").onclick=()=>{ unlockVoice(); $("sessIdle").hidden=true; $("sessForm").hidden=false; $("setsN").value=S.lastSets||4; renderExos(); };
+$("sessCancel").onclick=()=>{ $("sessForm").hidden=true; $("sessIdle").hidden=false; };
+const clampSets=v=>Math.max(1,Math.min(20,Math.round(pf(v)||1)));
+$("setsMinus").onclick=()=>{ $("setsN").value=clampSets($("setsN").value)-1||1; };
+$("setsPlus").onclick=()=>{ $("setsN").value=Math.min(20,clampSets($("setsN").value)+1); };
+$("sessGo").onclick=()=>{
+  unlockVoice();
+  S.exo=$("exoSel").value; S.load=$("load").value; S.vloss=$("vloss").value; S.lastSets=clampSets($("setsN").value);
+  S.sess={exo:S.exo, load:S.load, sets:S.lastSets, start:Date.now(), done:[], over:false};
+  save(); renderSess();
+  say(`Séance de ${EXOS[S.exo].name}, ${S.lastSets} séries. Pose le téléphone et lance la série 1.`, true);
+};
+$("sessLive").onclick=()=>{ $("bLive").click(); };
+$("sCam").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
+$("sLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
+$("sessEnd").onclick=()=>{
+  const ss=S.sess; if(!ss) return;
+  if(!ss.over && ss.done.length){ const all=ss.done.map(d=>setSummary(d.reps)).filter(x=>x.n); if(all.length) say(`Séance terminée : ${ss.done.length} séries.`, true); }
+  S.sess=null; save(); renderSess();
+};
+renderSess();
 
 /* ---------- Historique ---------- */
 function storeHistory(res){
