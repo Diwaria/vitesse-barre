@@ -158,7 +158,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
       <h2 id="t-stage" style="flex:0 1 auto">Repère et calibration</h2>
       <button type="button" id="bCancel" style="flex:0 0 auto">Fermer</button>
     </div>
-    <p class="hint" id="hint">Touchez le disque ou la pastille au bout de la barre.</p>
+    <p class="hint" id="hint">Touchez le centre du disque (le bout de la barre).</p>
     <div class="stage" id="stage"><canvas id="cv" width="640" height="360"></canvas><div class="banner" id="banner" hidden aria-live="polite"></div></div>
     <label class="field" id="scrubWrap"><span class="lbl">Image de départ</span><input id="scrub" type="range" min="0" max="1000" value="0"></label>
     <div class="row" id="calRow">
@@ -308,9 +308,48 @@ function rgb2hsv(r,g,b){
   let h=0; if(d>0){ if(mx===r) h=60*(((g-b)/d)%6); else if(mx===g) h=60*((b-r)/d+2); else h=60*((r-g)/d+4); }
   if(h<0) h+=360; return [h, mx===0?0:d/mx, mx];
 }
+/* Contour circulaire du disque : marche pour les disques noirs comme en couleur */
+const NA=72, CS=new Float32Array(NA), SN=new Float32Array(NA);
+for(let i=0;i<NA;i++){ CS[i]=Math.cos(2*Math.PI*i/NA); SN[i]=Math.sin(2*Math.PI*i/NA); }
+function grayOf(img){ const d=img.data, g=new Float32Array(img.width*img.height); for(let i=0,k=0;i<g.length;i++,k+=4) g[i]=0.299*d[k]+0.587*d[k+1]+0.114*d[k+2]; return g; }
+function ringScore(g,W,H,cx,cy,r){
+  const dr=Math.max(2,r*0.06); let s=0,n=0;
+  for(let i=0;i<NA;i++){
+    const xo=Math.round(cx+(r+dr)*CS[i]), yo=Math.round(cy+(r+dr)*SN[i]), xi=Math.round(cx+(r-dr)*CS[i]), yi=Math.round(cy+(r-dr)*SN[i]);
+    if(xo<0||yo<0||xo>=W||yo>=H||xi<0||yi<0||xi>=W||yi>=H) continue;
+    s+=Math.abs(g[yo*W+xo]-g[yi*W+xi]); n++;
+  }
+  return n>NA*0.6? s/n : 0;
+}
+function findCircle(g,W,H,tx,ty){
+  const rmax=Math.min(W,H)*0.45, cand=[], R=40;
+  for(let cy=ty-R;cy<=ty+R;cy+=3) for(let cx=tx-R;cx<=tx+R;cx+=3){
+    const rmin=Math.max(14, Math.hypot(cx-tx,cy-ty)+4);   // le toucher doit être dans le disque
+    for(let r=rmin;r<=rmax;r+=3){ const sc=ringScore(g,W,H,cx,cy,r); if(sc>0) cand.push([sc,cx,cy,r]); }
+  }
+  if(!cand.length) return null;
+  cand.sort((a,b)=>b[0]-a[0]);
+  const best=cand[0][0];
+  let pick=cand[0]; for(const c of cand){ if(c[0]<best*0.75) break; if(c[3]>pick[3]) pick=c; }   // bord extérieur plutôt que le moyeu
+  let [sc,cx,cy,r]=pick;
+  for(let it=0;it<3;it++){ let b=[sc,cx,cy,r];
+    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2++){ const s2=ringScore(g,W,H,cx+dx,cy+dy,r+d2); if(s2>b[0]) b=[s2,cx+dx,cy+dy,r+d2]; }
+    [sc,cx,cy,r]=b; }
+  return sc>=22 ? {score:sc,x:cx,y:cy,r} : null;
+}
 class Tracker {
   constructor(img, x, y, colModel){
     this.W = img.width; this.H = img.height;
+    if(colModel){
+      this.col = Object.assign({}, colModel);
+      const blob = this.flood(img, Math.round(x), Math.round(y));
+      if(blob){ x=blob.cx; y=blob.cy; }
+    }
+    const circ = findCircle(grayOf(img), this.W, this.H, Math.round(x), Math.round(y));
+    if(circ){
+      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=circ.r; this.r0=circ.r; this.rs=circ.r; this.score0=circ.score;
+      this.bw=this.bh=2*circ.r; this.px=this.x; this.py=this.y; this.lost=0; return;
+    }
     if(colModel){
       this.col = Object.assign({}, colModel);
       const blob = this.flood(img, Math.round(x), Math.round(y));
@@ -375,10 +414,27 @@ class Tracker {
     const vx = this.x - this.px, vy = this.y - this.py;
     const ex = this.x + vx, ey = this.y + vy;
     let res;
-    if(this.mode==="color") res = this.updColor(img, ex, ey); else res = this.updTpl(img, ex, ey);
-    if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true}; }
+    if(this.mode==="circle") res = this.updCircle(img, ex, ey);
+    else if(this.mode==="color") res = this.updColor(img, ex, ey); else res = this.updTpl(img, ex, ey);
+    if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true,k:this.mode==="circle"? this.r0/this.rs : 1}; }
     this.lost++; this.px=this.x; this.py=this.y; this.x=ex; this.y=ey;
     return {x:ex,y:ey,ok:false};
+  }
+  updCircle(img, ex, ey){
+    const g=grayOf(img), W=this.W, H=this.H, r=Math.round(this.rs), R=Math.min(48, 24+this.lost*8);
+    const cx0=Math.round(ex), cy0=Math.round(ey), sc={}; let b=[-1,0,0];
+    for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){ const v=ringScore(g,W,H,cx0+dx,cy0+dy,r); sc[dx+","+dy]=v; if(v>b[0]) b=[v,dx,dy]; }
+    if(b[0] < this.score0*0.45) return null;
+    const f=(a,m,c)=>{ const d=a-2*m+c; return Math.abs(d)<1e-6?0:Math.max(-0.5,Math.min(0.5,0.5*(a-c)/d)); };
+    const g0=k=>sc[k]??b[0];
+    const ox=f(g0((b[1]-1)+","+b[2]),b[0],g0((b[1]+1)+","+b[2])), oy=f(g0(b[1]+","+(b[2]-1)),b[0],g0(b[1]+","+(b[2]+1)));
+    const x=cx0+b[1]+ox, y=cy0+b[2]+oy;
+    // taille apparente du disque (il s'éloigne ou se rapproche de l'objectif)
+    const rx=Math.round(x), ry=Math.round(y), rv={}; let br=r, bs=-1;
+    for(let d2=-4;d2<=4;d2++){ const v=ringScore(g,W,H,rx,ry,r+d2); rv[d2]=v; if(v>bs){bs=v;br=d2;} }
+    const rf = r + br + (Math.abs(br)<4 ? f(rv[br-1],bs,rv[br+1]) : 0);
+    this.rs = this.rs*0.6 + rf*0.4; this.r=Math.round(this.rs);
+    return {x,y};
   }
   updColor(img, ex, ey){
     const W=this.W, H=this.H, d=img.data, R=30+this.lost*10;
@@ -427,24 +483,33 @@ function analyze(samples, mpp, exoKey, partial){
   const P = samples.filter(s=>s.ok);
   const n = P.length; if(n<8) return {t:[],y:[],x:[],v:[],a:[],reps:[],P};
   const t=P.map(s=>s.t), X0=P[0].x, Y0=P[0].y;
-  const yr=P.map(s=>-(s.y-Y0)*mpp), xr=P.map(s=>(s.x-X0)*mpp);
+  // échelle locale : le disque peut paraître plus petit en haut (plus loin de l'objectif)
+  const yr=new Array(n), xr=new Array(n); yr[0]=0; xr[0]=0;
+  for(let i=1;i<n;i++){ const k=((P[i].k||1)+(P[i-1].k||1))/2*mpp; yr[i]=yr[i-1]-(P[i].y-P[i-1].y)*k; xr[i]=xr[i-1]+(P[i].x-P[i-1].x)*k; }
   const fps=(n-1)/Math.max(1e-3,t[n-1]-t[0]);
   const h=Math.max(0.035, 2.1/fps);
   const y=new Array(n), v=new Array(n), a=new Array(n);
   for(let i=0;i<n;i++){ const f=quadFit(t,yr,i,h); if(f){ y[i]=f[0]; v[i]=f[1]; } else { y[i]=yr[i]; v[i]= i? (yr[i]-yr[i-1])/(t[i]-t[i-1]) : 0; } }
   const h2=Math.max(0.07, 3.5/fps);
   for(let i=0;i<n;i++){ const f=quadFit(t,v,i,h2); a[i]= f? f[1] : 0; }
-  const minRom = EXOS[exoKey].rom, up=0.06, rest=0.04, reps=[];
-  let i=0;
+  const minRom = EXOS[exoKey].rom, up=0.06, reps=[];
+  let i=0, rest=0.04, lastE=-1;
   while(i<n){
     if(v[i] <= up){ i++; continue; }
-    let s=i; while(s>0 && v[s-1]>rest) s--;
-    let e=i; while(e<n-1 && v[e+1]>rest) e++;
-    // fusion : courte pause (point mort) sans redescente nette
+    // pic de la montée, puis seuil de début/fin relatif au pic (12 %, au moins 0,04 m/s)
+    let e0=i; while(e0<n-1 && v[e0+1]>0.04) e0++;
+    let pk0=i; for(let k=i;k<=e0;k++) if(v[k]>v[pk0]) pk0=k;
+    rest=Math.max(0.04, 0.12*v[pk0]);
+    let s=pk0; while(s>lastE+1 && v[s-1]>rest) s--;
+    let e=pk0; while(e<n-1 && v[e+1]>rest) e++;
+    // fusion : point mort au milieu de la montée (pas le petit rebond au verrouillage)
     for(;;){
       let k=e+1, mn=Infinity;
-      while(k<n && t[k]-t[e]<=0.25 && v[k]<=up){ mn=Math.min(mn,v[k]); k++; }
-      if(k<n && t[k]-t[e]<=0.25 && mn>-0.08){ e=k; while(e<n-1 && v[e+1]>rest) e++; } else break;
+      while(k<n && t[k]-t[e]<=0.25 && v[k]<=rest){ mn=Math.min(mn,v[k]); k++; }
+      if(!(k<n && t[k]-t[e]<=0.25 && mn>-0.08)) break;
+      let e2=k; while(e2<n-1 && v[e2+1]>rest) e2++;
+      if(y[e2]-y[e] < 0.05) break;
+      e=e2;
     }
     const rom = y[e]-y[s];
     const complete = e < n-1 && t[n-1]-t[e] > 0.12;
@@ -461,7 +526,7 @@ function analyze(samples, mpp, exoKey, partial){
         mpv: (y[pe]-y[s])/Math.max(1e-3,t[pe]-ts),
         peak: v[pk]});
     }
-    i=e+1;
+    lastE=Math.max(e,e0); i=lastE+1;
   }
   return {t,y,x:xr,v,a,reps,P,fps};
 }
@@ -509,7 +574,7 @@ async function loadFile(file){
   cv.width=w; cv.height=h;
   $("scrubWrap").hidden=false; $("scrub").value=0; $("bGo").textContent="Analyser la série";
   await seek(0.05);
-  setHint("Touchez le disque ou la pastille au bout de la barre.");
+  setHint("Touchez le centre du disque (le bout de la barre).");
 }
 function seek(tm){
   const v=src.video;
@@ -562,7 +627,9 @@ cv.addEventListener("click", ev=>{
 function initTracker(){
   if(!tapPt||!setupImg) return;
   tracker=new Tracker(setupImg, tapPt.x, tapPt.y);
-  if(tracker.mode==="color"){ S.plateColor = tracker.col; save(); }
+  if(tracker.mode==="color"){ S.plateColor = tracker.col; }
+  if(tracker.mode==="circle"){ S.lastTap = {x:Math.round(tracker.x), y:Math.round(tracker.y), W:setupImg.width}; }
+  save();
   okSince=null;
   if(tracker.mode==="template" && calMode==="auto") setCal("two");
   updateCal(); redrawSetup();
@@ -570,7 +637,7 @@ function initTracker(){
 function mppNow(){
   if(!tracker) return NaN;
   if(calMode==="auto"){
-    if(tracker.mode!=="color") return NaN;
+    if(tracker.mode!=="color" && tracker.mode!=="circle") return NaN;
     const d=pf(S.diam)||45; return (d/100)/tracker.bh;
   }
   if(calPts.length<2) return NaN;
@@ -582,9 +649,9 @@ function updateCal(){
   const info=$("calInfo");
   if(!tracker){ info.textContent=""; $("bGo").disabled=true; return; }
   const mpp=mppNow();
-  let t = tracker.mode==="color" ? `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). ` : "Repère suivi par sa texture (pas de couleur vive). ";
+  let t = tracker.mode==="circle" ? `Contour du disque détecté (${tracker.bh} px de diamètre). ` : tracker.mode==="color" ? `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). ` : "Contour du disque non trouvé : repère suivi par sa texture. ";
   if(calMode==="auto"){
-    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${tracker.bh} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le contour vert entoure bien tout le disque.` : "";
+    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${tracker.bh} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le cercle vert suit bien le bord du disque.` : "";
   } else {
     t += calPts.length<2 ? `Touchez maintenant ${calPts.length? "le 2e point":"deux points"} dont vous connaissez la distance (ex. haut et bas du disque).` : `${num(mpp*1000,1)} mm par pixel.`;
   }
@@ -605,6 +672,7 @@ function drawOverlay(trail){
     ctx.strokeStyle="#35e08a";
     if(tracker.mode==="color" && !running && tracker.blob){ const b=tracker.blob; ctx.strokeRect(b.x0-1,b.y0-1,b.w+2,b.h+2); }
     ctx.beginPath(); ctx.arc(tracker.x,tracker.y,6*lw/2,0,7); ctx.stroke();
+    if(tracker.mode==="circle"){ ctx.beginPath(); ctx.arc(tracker.x,tracker.y,tracker.rs,0,7); ctx.stroke(); }
     if(tracker.mode==="template" && !running){ ctx.strokeRect(tracker.x-tracker.r,tracker.y-tracker.r,2*tracker.r+1,2*tracker.r+1); }
   }
   if(calMode==="two" && !running){
@@ -635,7 +703,7 @@ function runFile(){
   };
   const step=(tm)=>{
     const img=grabFrom(v,src.w,src.h);
-    const r=tracker.update(img); samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
+    const r=tracker.update(img); samples.push({t:tm,x:r.x,y:r.y,ok:r.ok,k:r.k});
     ctx.putImageData(img,0,0); drawOverlay(samples);
   };
   const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
@@ -670,15 +738,20 @@ function liveLoop(){
     const img=grabFrom(v,src.w,src.h); setupImg=img;
     const nowMs=performance.now();
     if(!tracker){
-      const found = S.plateColor ? autoFind(img, S.plateColor) : null;
+      let found = S.plateColor ? autoFind(img, S.plateColor) : null;
       if(found){ tapPt=found; tracker=new Tracker(img, found.x, found.y, S.plateColor); setCal("auto"); updateCal(); }
+      else if(S.lastTap && S.lastTap.W===img.width && (liveK++)%10===0){
+        // même emplacement que la dernière fois : on cherche le contour du disque au même endroit
+        const c=findCircle(grayOf(img), img.width, img.height, S.lastTap.x, S.lastTap.y);
+        if(c){ tapPt={x:c.x,y:c.y}; tracker=new Tracker(img, c.x, c.y); if(tracker.mode!=="circle") tracker=null; else { setCal("auto"); updateCal(); } }
+      }
       ctx.putImageData(img,0,0); drawOverlay();
-      banner("wait", S.plateColor? "Recherche du disque… touchez-le s'il n'est pas repéré" : "Touchez le disque pour le sélectionner");
+      banner("wait", (S.plateColor||S.lastTap)? "Recherche du disque… touchez son centre s'il n'est pas repéré" : "Touchez le centre du disque pour le sélectionner");
       return next();
     }
     const r=tracker.update(img);
     if(running){
-      samples.push({t:tm,x:r.x,y:r.y,ok:r.ok});
+      samples.push({t:tm,x:r.x,y:r.y,ok:r.ok,k:r.k});
       ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
       if(r.ok){ lostSince=null; if(!liveStopSaid) banner("go","Barre prise en compte · à vous !"); }
       else { lostSince = lostSince ?? nowMs; if(nowMs-lostSince>400) banner("bad","Disque perdu · vérifiez le cadrage"); }
@@ -696,7 +769,7 @@ function liveLoop(){
     } else {
       okSince=null; lostSince = lostSince ?? nowMs;
       banner("bad","Disque non visible · vérifiez le cadrage");
-      if(S.plateColor && tracker.mode==="color" && nowMs-lostSince>2000){ tracker=null; tapPt=null; }
+      if(S.plateColor && tracker.mode!=="template" && nowMs-lostSince>2000){ tracker=null; tapPt=null; }
     }
     next();
   };
@@ -954,7 +1027,7 @@ async function runDemo(visible){
   const smp=[]; const N=Math.floor(sc.total*sc.fps);
   if(visible){ closeStage(); openStage(); cv.width=sc.W; cv.height=sc.H; $("scrubWrap").hidden=true; $("calRow").hidden=true; $("bGo").hidden=true; setHint("Démo : suivi d'un disque rouge sur une série de squat simulée."); tracker=tr; running=true; $("prog").hidden=false; }
   for(let i=0;i<N;i++){
-    const t=i/sc.fps, img=sc.frame(t), r=tr.update(img); smp.push({t,x:r.x,y:r.y,ok:r.ok});
+    const t=i/sc.fps, img=sc.frame(t), r=tr.update(img); smp.push({t,x:r.x,y:r.y,ok:r.ok,k:r.k});
     if(visible){ ctx.putImageData(img,0,0); samples=smp; drawOverlay(smp); $("prog").value=i/N; if(i%2===0) await new Promise(r=>setTimeout(r,33)); }
     else if(i%60===0) await new Promise(r=>setTimeout(r,0));
   }
