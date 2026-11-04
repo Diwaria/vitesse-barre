@@ -251,12 +251,12 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
 "use strict";
 /* ---------- Réglages ---------- */
 const EXOS = {
-  squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv"},
-  fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv"},
+  squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
+  fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
   hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv"},
-  rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv"},
+  rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true},
   dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true},
-  bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv"},
+  bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv",ecc:true},
   ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv"},
   row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv"},
   clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"peak",floor:true},
@@ -524,7 +524,14 @@ function analyze(samples, mpp, exoKey, partial){
     }
     const rom = y[e]-y[s];
     const complete = e < n-1 && t[n-1]-t[e] > 0.12;
-    if(rom >= minRom && (complete || !partial)){
+    // squat, développé couché, RDL : une montée ne compte que si elle suit une vraie descente
+    // (le dérackage, le pas en arrière et le rerackage sont ignorés)
+    let eccOk = true;
+    if(EXOS[exoKey].ecc){
+      let top=-Infinity; for(let k=s; k>lastE && k>=0 && t[s]-t[k]<=6; k--) if(y[k]>top) top=y[k];
+      eccOk = top - y[s] >= 0.7*rom;
+    }
+    if(rom >= minRom && eccOk && (complete || !partial)){
       let pk=s; for(let k=s;k<=e;k++) if(v[k]>v[pk]) pk=k;
       let pe=e; for(let k=pk;k<=e;k++){ if(a[k] < -9.81){ pe=k; break; } }
       // instants de début et de fin interpolés au passage du seuil de vitesse
