@@ -328,17 +328,20 @@ function grayOf(img){
   return g;
 }
 function ringScore(g,W,H,cx,cy,r){
-  const dr=Math.max(2,r*0.06); let s=0,n=0;
+  // contraste signé entre l'extérieur et l'intérieur du cercle : il doit avoir le même sens tout autour
+  // (disque plus sombre ou plus coloré que le fond), ce qui écarte les cercles qui ne font que croiser des bords
+  const dr=Math.max(2,r*0.06); let sL=0,sA=0,sB=0,n=0;
+  const cap=v=>v>60?60:(v<-60?-60:v);
   for(let i=0;i<NA;i++){
     const xo=Math.round(cx+(r+dr)*CS[i]), yo=Math.round(cy+(r+dr)*SN[i]), xi=Math.round(cx+(r-dr)*CS[i]), yi=Math.round(cy+(r-dr)*SN[i]);
     if(xo<0||yo<0||xo>=W||yo>=H||xi<0||yi<0||xi>=W||yi>=H) continue;
     const a=(yo*W+xo)*3, b=(yi*W+xi)*3;
-    s+=Math.min(60, Math.abs(g[a]-g[b])+Math.abs(g[a+1]-g[b+1])+Math.abs(g[a+2]-g[b+2])); n++;   // plafonné : un bord complet vaut mieux que quelques traits très contrastés
+    sL+=cap(g[a]-g[b]); sA+=cap(g[a+1]-g[b+1]); sB+=cap(g[a+2]-g[b+2]); n++;
   }
-  return n>NA*0.6? s/n : 0;
+  return n>NA*0.6? (Math.abs(sL)+Math.abs(sA)+Math.abs(sB))/n : 0;
 }
 function findCircle(g,W,H,tx,ty){
-  const rmax=Math.min(W,H)*0.45, cand=[], R=40;
+  const rmax=Math.min(W,H)*0.45, cand=[], R=60;
   for(let cy=ty-R;cy<=ty+R;cy+=3) for(let cx=tx-R;cx<=tx+R;cx+=3){
     const rmin=Math.max(14, Math.hypot(cx-tx,cy-ty)+4);   // le toucher doit être dans le disque
     for(let r=rmin;r<=rmax;r+=3){ const sc=ringScore(g,W,H,cx,cy,r); if(sc>0) cand.push([sc,cx,cy,r]); }
@@ -346,7 +349,8 @@ function findCircle(g,W,H,tx,ty){
   if(!cand.length) return null;
   cand.sort((a,b)=>b[0]-a[0]);
   const best=cand[0][0];
-  let pick=cand[0]; for(const c of cand){ if(c[0]<best*0.85) break; if(c[3]>pick[3]) pick=c; }   // bord extérieur plutôt que le bout du manchon
+  // meilleur cercle ; on ne passe à un cercle plus grand que s'il est concentrique (bord extérieur plutôt que le moyeu)
+  let pick=cand[0]; for(const c of cand){ if(c[0]<best*0.85) break; if(c[3]>pick[3] && Math.hypot(c[1]-cand[0][1],c[2]-cand[0][2])<=Math.max(6,0.15*c[3])) pick=c; }
   let [sc,cx,cy,r]=pick; const rlo=Math.max(14,pick[3]-3);
   for(let it=0;it<3;it++){ let b=[sc,cx,cy,r];
     for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2++){ if(r+d2<rlo) continue; const s2=ringScore(g,W,H,cx+dx,cy+dy,r+d2); if(s2>b[0]) b=[s2,cx+dx,cy+dy,r+d2]; }
@@ -355,45 +359,36 @@ function findCircle(g,W,H,tx,ty){
 }
 class Tracker {
   constructor(img, x, y, colModel){
-    this.W = img.width; this.H = img.height;
-    if(colModel){
-      this.col = Object.assign({}, colModel);
-      const blob = this.flood(img, Math.round(x), Math.round(y));
-      if(blob){ x=blob.cx; y=blob.cy; }
-    }
-    const circ = findCircle(grayOf(img), this.W, this.H, Math.round(x), Math.round(y));
-    if(circ){
-      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=circ.r; this.r0=circ.r; this.rs=circ.r; this.score0=circ.score;
-      this.bw=this.bh=2*circ.r; this.px=this.x; this.py=this.y; this.lost=0; return;
-    }
-    if(colModel){
-      this.col = Object.assign({}, colModel);
-      const blob = this.flood(img, Math.round(x), Math.round(y));
-      if(blob && blob.n >= 20){ this.mode="color"; this.n0=blob.n; this.bw=blob.w; this.bh=blob.h; this.x=blob.cx; this.y=blob.cy; this.blob=blob; this.px=this.x; this.py=this.y; this.lost=0; return; }
-    }
-    const d = img.data, hs=[], ss=[], vs=[];
-    for(let j=-2;j<=2;j++) for(let i=-2;i<=2;i++){
-      const px = Math.min(this.W-1,Math.max(0,Math.round(x)+i)), py = Math.min(this.H-1,Math.max(0,Math.round(y)+j));
-      const k=(py*this.W+px)*4; const [h,s,v]=rgb2hsv(d[k],d[k+1],d[k+2]); hs.push(h); ss.push(s); vs.push(v);
-    }
-    const med = a => a.slice().sort((p,q)=>p-q)[a.length>>1];
-    // teinte moyenne circulaire
-    let cx=0, cy=0; hs.forEach(h=>{cx+=Math.cos(h*Math.PI/180); cy+=Math.sin(h*Math.PI/180);});
-    const h0 = (Math.atan2(cy,cx)*180/Math.PI+360)%360, s0=med(ss), v0=med(vs);
-    this.mode = null;
-    if(s0 > 0.32 && v0 > 0.18){
-      this.col = {h:h0, ht:18, smin:Math.max(0.2,s0*0.45), vmin:Math.max(0.1,v0*0.35)};
-      const blob = this.flood(img, Math.round(x), Math.round(y));
-      if(blob && blob.n >= 20){
-        this.mode = "color"; this.n0 = blob.n; this.bw = blob.w; this.bh = blob.h;
-        this.x = blob.cx; this.y = blob.cy; this.blob = blob;
+    this.W = img.width; this.H = img.height; this.lost = 0;
+    // 1) repère de couleur vive sous le doigt (embout rouge, pastille, disque coloré) : le plus fiable à suivre
+    let blob=null;
+    if(colModel){ this.col = Object.assign({}, colModel); blob = this.flood(img, Math.round(x), Math.round(y)); }
+    else {
+      const d = img.data, hs=[], ss=[], vs=[];
+      for(let j=-2;j<=2;j++) for(let i=-2;i<=2;i++){
+        const px = Math.min(this.W-1,Math.max(0,Math.round(x)+i)), py = Math.min(this.H-1,Math.max(0,Math.round(y)+j));
+        const k=(py*this.W+px)*4; const [h,s,v]=rgb2hsv(d[k],d[k+1],d[k+2]); hs.push(h); ss.push(s); vs.push(v);
       }
+      const med = a => a.slice().sort((p,q)=>p-q)[a.length>>1];
+      let cx=0, cy=0; hs.forEach(h=>{cx+=Math.cos(h*Math.PI/180); cy+=Math.sin(h*Math.PI/180);});
+      const h0 = (Math.atan2(cy,cx)*180/Math.PI+360)%360, s0=med(ss), v0=med(vs);
+      if(s0 > 0.32 && v0 > 0.18){ this.col = {h:h0, ht:18, smin:Math.max(0.2,s0*0.45), vmin:Math.max(0.1,v0*0.35)}; blob = this.flood(img, Math.round(x), Math.round(y)); }
     }
-    if(!this.mode){
+    if(blob && blob.n < 20) blob=null;
+    // 2) contour du disque autour du toucher : sert à la calibration (45 cm), et au suivi s'il n'y a pas de couleur
+    const circ = findCircle(grayOf(img), this.W, this.H, Math.round(blob? blob.cx : x), Math.round(blob? blob.cy : y));
+    if(blob){
+      this.mode="color"; this.n0=blob.n; this.bw=blob.w; this.bh=blob.h; this.x=blob.cx; this.y=blob.cy; this.blob=blob;
+      this.cal = circ && 2*circ.r > Math.max(blob.w,blob.h)*1.15 ? 2*circ.r : blob.h;   // pastille sur le disque : on calibre sur le disque
+      if(circ && this.cal===2*circ.r) this.circ=circ;
+    } else if(circ){
+      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=circ.r; this.r0=circ.r; this.rs=circ.r; this.score0=circ.score;
+      this.bw=this.bh=2*circ.r; this.cal=2*circ.r; this.circ=circ;
+    } else {
       this.mode = "template"; this.r = 14; this.x = x; this.y = y;
       this.tpl = this.patch(this.gray(img), x, y, this.r);
     }
-    this.px = this.x; this.py = this.y; this.lost = 0;
+    this.px = this.x; this.py = this.y;
   }
   match(d,k){
     const [h,s,v] = rgb2hsv(d[k],d[k+1],d[k+2]);
@@ -671,8 +666,8 @@ function initTracker(){
 function mppNow(){
   if(!tracker) return NaN;
   if(calMode==="auto"){
-    if(tracker.mode!=="color" && tracker.mode!=="circle") return NaN;
-    const d=pf(S.diam)||45; return (d/100)/tracker.bh;
+    if(!tracker.cal) return NaN;
+    const d=pf(S.diam)||45; return (d/100)/tracker.cal;
   }
   if(calPts.length<2) return NaN;
   const dpx=Math.hypot(calPts[1].x-calPts[0].x, calPts[1].y-calPts[0].y);
@@ -683,9 +678,9 @@ function updateCal(){
   const info=$("calInfo");
   if(!tracker){ info.textContent=""; $("bGo").disabled=true; return; }
   const mpp=mppNow();
-  let t = tracker.mode==="circle" ? `Contour du disque détecté (${Math.round(tracker.bh)} px de diamètre). ` : tracker.mode==="color" ? `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). ` : "Contour du disque non trouvé : repère suivi par sa texture. ";
+  let t = tracker.mode==="circle" ? `Contour du disque détecté (${Math.round(tracker.cal)} px de diamètre). ` : tracker.mode==="color" ? (tracker.circ? `Repère couleur suivi, disque de ${Math.round(tracker.cal)} px de diamètre. ` : `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). `) : "Contour du disque non trouvé : repère suivi par sa texture. ";
   if(calMode==="auto"){
-    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${Math.round(tracker.bh)} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le cercle vert suit bien le bord du disque.` : "";
+    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${Math.round(tracker.cal)} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le cercle vert suit bien le bord du disque.` : "";
   } else {
     t += calPts.length<2 ? `Touchez maintenant ${calPts.length? "le 2e point":"deux points"} dont vous connaissez la distance (ex. haut et bas du disque).` : `${num(mpp*1000,1)} mm par pixel.`;
   }
@@ -707,6 +702,7 @@ function drawOverlay(trail){
     if(tracker.mode==="color" && !running && tracker.blob){ const b=tracker.blob; ctx.strokeRect(b.x0-1,b.y0-1,b.w+2,b.h+2); }
     ctx.beginPath(); ctx.arc(tracker.x,tracker.y,6*lw/2,0,7); ctx.stroke();
     if(tracker.mode==="circle"){ ctx.beginPath(); ctx.arc(tracker.x,tracker.y,tracker.rs,0,7); ctx.stroke(); }
+    else if(tracker.circ && !running){ ctx.beginPath(); ctx.arc(tracker.circ.x,tracker.circ.y,tracker.circ.r,0,7); ctx.stroke(); }
     if(tracker.mode==="template" && !running){ ctx.strokeRect(tracker.x-tracker.r,tracker.y-tracker.r,2*tracker.r+1,2*tracker.r+1); }
   }
   if(calMode==="two" && !running){
@@ -1062,7 +1058,7 @@ async function runDemo(visible){
   const sc=demoScene();
   const first=sc.frame(0);
   const tr=new Tracker(first, sc.x0+30, sc.ytop+5);
-  const mpp=(0.45)/tr.bh;
+  const mpp=(0.45)/tr.cal;
   const smp=[]; const N=Math.floor(sc.total*sc.fps);
   if(visible){ closeStage(); openStage(); cv.width=sc.W; cv.height=sc.H; $("scrubWrap").hidden=true; $("calRow").hidden=true; $("bGo").hidden=true; setHint("Démo : suivi d'un disque rouge sur une série de squat simulée."); tracker=tr; running=true; $("prog").hidden=false; }
   for(let i=0;i<N;i++){
