@@ -1,0 +1,170 @@
+"use strict";
+/* Espace coach : code d'équipe, programmation des séances, suivi des séries par semaine, vidéos sur demande */
+(function(){
+  const main = document.getElementById("main");
+  const cfg = window.VB_CONFIG || {};
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const n2 = x => x==null || !isFinite(x) ? "–" : (+x).toFixed(2).replace(".", ",");
+  const exName = k => EXOS[k]?.name || k;
+  if(!cfg.url || !cfg.key || !window.supabase){ main.innerHTML = `<p class="note">L'espace coach n'est pas encore relié au serveur.</p>`; return; }
+  const sb = window.supabase.createClient(cfg.url, cfg.key);
+  let user=null, profile=null, team=null, players=[], sets=[], plans=[], tab="suivi", filterPlayer="", weeks=6;
+
+  function exOptions(sel){
+    const cats={}; for(const [k,e] of Object.entries(EXOS)) (cats[e.cat] ||= []).push([k,e]);
+    return Object.entries(cats).map(([c,l])=>`<optgroup label="${esc(c)}">${l.map(([k,e])=>`<option value="${k}"${k===sel?" selected":""}>${esc(e.name)}</option>`).join("")}</optgroup>`).join("");
+  }
+  function weekStart(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
+  const fmtDay = d => new Date(d).toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"});
+
+  function loginView(msg){
+    main.innerHTML=`<h2>Connexion coach</h2>
+      <div class="grid2"><label class="field"><span class="lbl">E-mail</span><input id="cMail" type="email" autocomplete="email"></label>
+      <label class="field"><span class="lbl">Mot de passe</span><input id="cPass" type="password" autocomplete="current-password"></label></div>
+      <button type="button" class="primary" id="cLogin">Se connecter</button>
+      <p class="note" id="cMsg">${esc(msg||"Pas encore de compte ? Crée-le depuis l'app (Mon compte › Créer un compte), puis « Je suis le coach ».")}</p>`;
+    $("cLogin").onclick=async()=>{ const {error}=await sb.auth.signInWithPassword({email:$("cMail").value.trim(),password:$("cPass").value}); if(error) $("cMsg").textContent="E-mail ou mot de passe incorrect."; };
+  }
+
+  async function loadData(){
+    const since=new Date(Date.now()-weeks*7*864e5).toISOString();
+    const [p,s,pl]=await Promise.all([
+      sb.from("profiles").select("id,name,role").eq("team_id",team.id).order("name"),
+      sb.from("sets").select("*").eq("team_id",team.id).gte("performed_at",since).order("performed_at",{ascending:false}).limit(2000),
+      sb.from("planned_sessions").select("*").eq("team_id",team.id).gte("day",new Date(Date.now()-21*864e5).toISOString().slice(0,10)).order("day")
+    ]);
+    players=(p.data||[]).filter(x=>x.role==="player"); sets=s.data||[]; plans=pl.data||[];
+  }
+
+  function render(){
+    const tabs=[["suivi","Suivi"],["prog","Programmer"],["joueurs",`Joueurs (${players.length})`]];
+    main.innerHTML=`<div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="flex:0 1 auto">${esc(team.name)}</h2>
+      <button type="button" class="small" id="cOut" style="flex:0 0 auto">Se déconnecter</button></div>
+      <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button type="button" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}</button>`).join("")}</div>
+      <div id="tabBody" class="col"></div>`;
+    main.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); });
+    $("cOut").onclick=()=>sb.auth.signOut();
+    if(tab==="suivi") renderSuivi(); else if(tab==="prog") renderProg(); else renderPlayers();
+  }
+
+  /* ---------- Suivi ---------- */
+  function spark(points){
+    if(points.length<2) return "";
+    const W=600,H=120,P=24, xs=points.map(p=>p.t), ys=points.map(p=>p.v);
+    const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys)*0.95, y1=Math.max(...ys)*1.05;
+    const X=t=>P+(t-x0)/((x1-x0)||1)*(W-2*P), Y=v=>H-P-(v-y0)/((y1-y0)||1)*(H-2*P);
+    const d=points.map((p,i)=>(i?"L":"M")+X(p.t).toFixed(1)+" "+Y(p.v).toFixed(1)).join(" ");
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" role="img" aria-label="Meilleure vitesse par séance">
+      <line x1="${P}" x2="${W-P}" y1="${H-P}" y2="${H-P}" stroke="var(--line)"/>
+      <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round"/>
+      ${points.map(p=>`<circle cx="${X(p.t).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="5" fill="var(--accent)"><title>${fmtDay(p.t)} : ${n2(p.v)} m/s</title></circle>`).join("")}
+      <text x="${P}" y="14" font-size="16" fill="var(--muted)">${n2(y1/1.05)} m/s</text><text x="${P}" y="${H-4}" font-size="16" fill="var(--muted)">${n2(y0/0.95)}</text></svg>`;
+  }
+  function renderSuivi(){
+    const body=$("tabBody");
+    const list=sets.filter(s=>!filterPlayer || s.player_id===filterPlayer);
+    const pname=id=>players.find(p=>p.id===id)?.name||"Joueur";
+    let html=`<div class="grid2"><label class="field"><span class="lbl">Joueur</span><select id="fPl"><option value="">Toute l'équipe</option>${players.map(p=>`<option value="${p.id}"${p.id===filterPlayer?" selected":""}>${esc(p.name||"Sans nom")}</option>`).join("")}</select></label>
+      <label class="field"><span class="lbl">Période</span><select id="fWk">${[2,4,6,12].map(w=>`<option value="${w}"${w===weeks?" selected":""}>${w} dernières semaines</option>`).join("")}</select></label></div>`;
+    if(!list.length){ body.innerHTML=html+`<p class="note">Aucune série reçue sur cette période. Les séries apparaissent ici dès qu'un joueur les termine.</p>`; bindF(); return; }
+    // courbes : meilleure vitesse de chaque séance, par exercice (joueur choisi)
+    if(filterPlayer){
+      const by={}; for(const s of list){ const k=s.exo; const key=s.session_key; (by[k] ||= {}); const b=by[k][key]; if(!b || s.best>b.v) by[k][key]={t:new Date(s.performed_at).getTime(), v:+s.best}; }
+      html+=Object.entries(by).map(([k,m])=>{ const pts=Object.values(m).filter(p=>isFinite(p.v)).sort((a,b)=>a.t-b.t); return pts.length>1? `<div><div class="lbl">${esc(exName(k))} · meilleure vitesse par séance</div>${spark(pts)}</div>` : ""; }).join("");
+    }
+    // semaines → séances → séries
+    const wk={}; for(const s of list){ const w=weekStart(s.performed_at).getTime(); ((wk[w] ||= {})[s.player_id+"|"+s.session_key] ||= []).push(s); }
+    for(const w of Object.keys(wk).sort((a,b)=>b-a)){
+      const end=new Date(+w+6*864e5);
+      html+=`<div class="week"><div class="wk">Semaine du ${new Date(+w).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} au ${end.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</div>`;
+      const sessions=Object.values(wk[w]).sort((a,b)=>new Date(b[0].performed_at)-new Date(a[0].performed_at));
+      for(const ss of sessions){
+        ss.sort((a,b)=>new Date(a.performed_at)-new Date(b.performed_at));
+        const rows=ss.map(s=>{
+          const hit = s.vloss_target!=null && s.loss!=null && s.loss>=s.vloss_target;
+          const vid = s.video_path ? `<button type="button" class="small" data-see="${s.id}">Voir</button>`
+                    : s.video_requested ? `<span class="sub">demandée</span>` : `<button type="button" class="small" data-ask="${s.id}">Demander</button>`;
+          return `<tr><td>${esc(exName(s.exo))}</td><td>S${s.set_index}</td><td>${s.load_kg!=null? esc(s.load_kg)+" kg":"–"}</td><td>${(s.reps||[]).length}</td><td>${n2(s.best)}</td><td>${n2(s.last)}</td><td class="${hit?"bad":"ok"}">${s.loss!=null? Math.round(s.loss)+" %":"–"}${s.vloss_target!=null?` <span class="sub">/ ${Math.round(s.vloss_target)}</span>`:""}</td><td>${vid}</td></tr>
+            <tr hidden data-vrow="${s.id}"><td colspan="8"></td></tr>`;
+        }).join("");
+        html+=`<div class="sess"><h3>${esc(pname(ss[0].player_id))} · ${fmtDay(ss[0].performed_at)}</h3>
+          <div class="tblwrap"><table class="tbl"><thead><tr><th>Exercice</th><th>Série</th><th>Charge</th><th>Rép.</th><th>Meilleure</th><th>Dernière</th><th>Perte / max</th><th>Vidéo</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+      }
+      html+=`</div>`;
+    }
+    body.innerHTML=html; bindF();
+    body.querySelectorAll("[data-ask]").forEach(b=>b.onclick=async()=>{ b.disabled=true; const {error}=await sb.from("sets").update({video_requested:true}).eq("id",b.dataset.ask); if(error){ b.disabled=false; b.textContent="Réessayer"; return; } const s=sets.find(x=>x.id===b.dataset.ask); if(s) s.video_requested=true; b.outerHTML=`<span class="sub">demandée</span>`; });
+    body.querySelectorAll("[data-see]").forEach(b=>b.onclick=async()=>{
+      const s=sets.find(x=>x.id===b.dataset.see); const row=body.querySelector(`[data-vrow="${s.id}"]`);
+      if(!row.hidden){ row.hidden=true; row.firstElementChild.innerHTML=""; return; }
+      const {data,error}=await sb.storage.from("videos").createSignedUrl(s.video_path, 3600);
+      row.hidden=false; row.firstElementChild.innerHTML = error? `<span class="note">Vidéo introuvable.</span>` : `<video src="${data.signedUrl}" controls playsinline></video>`;
+    });
+  }
+  function bindF(){
+    $("fPl").onchange=e=>{ filterPlayer=e.target.value; renderSuivi(); };
+    $("fWk").onchange=async e=>{ weeks=+e.target.value; await loadData(); renderSuivi(); };
+  }
+
+  /* ---------- Programmer ---------- */
+  let draft=null;
+  function renderProg(){
+    draft ||= {day:new Date().toISOString().slice(0,10), title:"", player_id:"", exercises:[{exo:"squat",sets:4,load:"",vloss:20}]};
+    const body=$("tabBody");
+    const exRows=draft.exercises.map((e,i)=>`<div class="exrow">
+      <label class="field"><span class="lbl">Exercice</span><select data-f="exo" data-i="${i}">${exOptions(e.exo)}</select></label>
+      <label class="field"><span class="lbl">Séries</span><input data-f="sets" data-i="${i}" type="number" inputmode="numeric" min="1" max="20" value="${esc(e.sets)}"></label>
+      <label class="field"><span class="lbl">Charge kg</span><input data-f="load" data-i="${i}" type="number" inputmode="decimal" step="2.5" value="${esc(e.load)}"></label>
+      <label class="field"><span class="lbl">Perte max %</span><input data-f="vloss" data-i="${i}" type="number" inputmode="numeric" step="5" value="${esc(e.vloss)}"></label>
+      <button type="button" class="small" data-del="${i}" aria-label="Retirer l'exercice"${draft.exercises.length<2?" disabled":""}>✕</button></div>`).join("");
+    const up=plans.filter(p=>p.day>=new Date(Date.now()-864e5).toISOString().slice(0,10));
+    body.innerHTML=`<div class="grid2">
+        <label class="field"><span class="lbl">Date</span><input id="pDay" type="date" value="${draft.day}"></label>
+        <label class="field"><span class="lbl">Pour</span><select id="pWho"><option value="">Toute l'équipe</option>${players.map(p=>`<option value="${p.id}"${p.id===draft.player_id?" selected":""}>${esc(p.name||"Sans nom")}</option>`).join("")}</select></label>
+        <label class="field" style="grid-column:1/-1"><span class="lbl">Titre</span><input id="pTitle" placeholder="ex. Force bas du corps" value="${esc(draft.title)}"></label>
+      </div>
+      <div class="col">${exRows}</div>
+      <div class="row"><button type="button" id="pAdd">Ajouter un exercice</button><button type="button" class="primary" id="pSave">Enregistrer la séance</button></div>
+      <p class="note" id="pMsg"></p>
+      <div class="lbl">Séances à venir</div>
+      <div class="sets">${up.map(p=>`<div class="setrow"><span class="k">${new Date(p.day+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span>
+        <span class="m"><b>${esc(p.title||"Séance")}</b> · ${p.player_id? esc(players.find(x=>x.id===p.player_id)?.name||"joueur") : "toute l'équipe"}<br>${(p.exercises||[]).map(e=>`${esc(exName(e.exo))} ${e.sets}×${e.load? " "+esc(e.load)+" kg":""}${e.vloss? ", perte max "+esc(e.vloss)+" %":""}`).join(" · ")}</span>
+        <button type="button" class="small" data-rm="${p.id}">Supprimer</button></div>`).join("") || `<p class="note">Aucune séance programmée.</p>`}</div>`;
+    body.querySelectorAll("[data-f]").forEach(el=>el.onchange=()=>{ draft.exercises[+el.dataset.i][el.dataset.f]=el.value; });
+    body.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ draft.exercises.splice(+b.dataset.del,1); renderProg(); });
+    $("pDay").onchange=e=>draft.day=e.target.value; $("pWho").onchange=e=>draft.player_id=e.target.value; $("pTitle").oninput=e=>draft.title=e.target.value;
+    $("pAdd").onclick=()=>{ const l=draft.exercises[draft.exercises.length-1]; draft.exercises.push({exo:l.exo,sets:l.sets,load:"",vloss:l.vloss}); renderProg(); };
+    $("pSave").onclick=async()=>{
+      const ex=draft.exercises.map(e=>({exo:e.exo, sets:Math.max(1,parseInt(e.sets)||1), load:e.load===""?null:+String(e.load).replace(",","."), vloss:e.vloss===""?null:+e.vloss}));
+      const {error}=await sb.from("planned_sessions").insert({team_id:team.id, player_id:draft.player_id||null, day:draft.day, title:draft.title.trim(), exercises:ex});
+      if(error){ $("pMsg").textContent="Enregistrement impossible : "+error.message; return; }
+      draft=null; await loadData(); renderProg(); $("pMsg").textContent="Séance enregistrée. Les joueurs la verront dans l'app.";
+    };
+    body.querySelectorAll("[data-rm]").forEach(b=>b.onclick=async()=>{ if(b.dataset.c!=="1"){ b.dataset.c="1"; b.textContent="Confirmer"; return; } await sb.from("planned_sessions").delete().eq("id",b.dataset.rm); await loadData(); renderProg(); });
+  }
+
+  /* ---------- Joueurs ---------- */
+  function renderPlayers(){
+    const body=$("tabBody"), wk0=weekStart(Date.now()).getTime();
+    body.innerHTML=`<div class="sess"><div class="lbl">Code à donner à tes joueurs</div><div class="code">${esc(team.code)}</div>
+      <p class="note">Le joueur ouvre l'app, crée son compte (Mon compte), puis entre ce code.</p>
+      <button type="button" class="small" id="cpy">Copier le code</button></div>
+      <div class="sets">${players.map(p=>{ const ps=sets.filter(s=>s.player_id===p.id); const last=ps[0]?.performed_at; const nWeek=new Set(ps.filter(s=>new Date(s.performed_at).getTime()>=wk0).map(s=>s.session_key)).size;
+        return `<div class="setrow"><span class="k">${esc((p.name||"?").slice(0,2).toUpperCase())}</span><span class="m"><b>${esc(p.name||"Sans nom")}</b><br>${last? "dernière séance "+fmtDay(last) : "aucune séance"} · ${nWeek} séance(s) cette semaine</span>
+        <button type="button" class="small" data-see="${p.id}">Suivi</button></div>`; }).join("") || `<p class="note">Aucun joueur pour l'instant.</p>`}</div>`;
+    $("cpy").onclick=()=>{ navigator.clipboard?.writeText(team.code).then(()=>$("cpy").textContent="Copié",()=>{}); };
+    body.querySelectorAll("[data-see]").forEach(b=>b.onclick=()=>{ filterPlayer=b.dataset.see; tab="suivi"; render(); });
+  }
+
+  async function load(){
+    const {data:{session}}=await sb.auth.getSession(); user=session?.user||null;
+    if(!user){ loginView(); return; }
+    const {data:p}=await sb.from("profiles").select("*").eq("id",user.id).maybeSingle(); profile=p;
+    if(profile?.role!=="coach"){ main.innerHTML=`<p class="note">Ce compte n'est pas un compte coach. Crée ton équipe depuis l'app (Mon compte › Je suis le coach).</p><a class="btn" href="./">Retour à l'app</a>`; return; }
+    const {data:t}=await sb.from("teams").select("*").eq("coach_id",user.id).maybeSingle(); team=t;
+    await loadData(); render();
+  }
+  sb.auth.onAuthStateChange(ev=>{ if(ev==="SIGNED_IN"||ev==="SIGNED_OUT") load(); });
+  load();
+})();

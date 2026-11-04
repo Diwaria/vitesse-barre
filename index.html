@@ -123,6 +123,8 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
     <span class="sub" id="status">Vitesse concentrique par répétition</span>
   </header>
 
+  <section class="card" id="cloudCard" hidden aria-labelledby="t-cloud"></section>
+
   <section class="card" id="sessCard" aria-labelledby="t-sess">
     <div id="sessIdle" class="col">
       <h2 id="t-sess">Séance</h2>
@@ -147,6 +149,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
         <h2 id="sessTitle" style="flex:0 1 auto"></h2>
         <span class="badge" id="sessCount" style="flex:0 0 auto"></span>
       </div>
+      <p class="note" id="sessPlan" hidden></p>
       <div class="sets" id="sessSets"></div>
       <div class="actions" id="sessActions">
         <button type="button" class="primary big" id="sessLive"></button>
@@ -154,6 +157,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
         <label class="btn">Photothèque<input id="sLib" type="file" accept="video/*"></label>
       </div>
       <p class="warnbox" id="sessMsg" hidden></p>
+      <button type="button" class="primary big" id="sessNext" hidden>Exercice suivant</button>
       <button type="button" id="sessEnd">Terminer la séance</button>
     </div>
   </section>
@@ -247,6 +251,8 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
   </section>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script>
 "use strict";
 /* ---------- Réglages ---------- */
@@ -728,7 +734,7 @@ $("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ running? stopLiv
 
 function runFile(){
   const v=src.video, mpp=mppNow(); if(!isFinite(mpp)) return;
-  running=true; samples=[]; $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true;
+  running=true; samples=[]; recStart(); $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true;
   setHint("Analyse en cours… gardez l'écran allumé.");
   const t0=v.currentTime, dur=v.duration||1; let lastT=-1;
   const onFrame=(now,meta)=>{
@@ -751,14 +757,42 @@ function runFile(){
 }
 function finishSet(mpp, origin){
   running=false; releaseWake();
+  const video=recStop();
   const res=analyze(samples, mpp, S.exo, false);
   res.mpp=mpp; res.exo=S.exo; res.load=S.load; res.date=Date.now(); res.origin=origin; res.demo=false;
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
   closeStage();
   lastResult=res; renderResult(res); storeHistory(res);
-  if(S.sess && !S.sess.over){ addSetToSess(res); }
+  if(S.sess && !S.sess.over){
+    const k=S.sess.done.length+1, snap=JSON.parse(JSON.stringify(S.sess));
+    addSetToSess(res);
+    window.Cloud?.onSet({res, sess:snap, k, video});
+  }
   else { speakSummary(res); $("resCard").scrollIntoView({behavior:"smooth",block:"start"}); }
+}
+
+/* Vidéo de la série : on enregistre l'image analysée (640 px, avec le tracé), légère à envoyer */
+let rec=null, recChunks=[];
+function recStart(){
+  rec=null; recChunks=[];
+  try{
+    if(!window.MediaRecorder || !cv.captureStream) return;
+    const st=cv.captureStream(30);
+    const types=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];
+    const mt=types.find(t=>MediaRecorder.isTypeSupported?.(t));
+    rec=new MediaRecorder(st, mt? {mimeType:mt, videoBitsPerSecond:900000} : {videoBitsPerSecond:900000});
+    rec.ondataavailable=e=>{ if(e.data && e.data.size) recChunks.push(e.data); };
+    rec.start(1000);
+  }catch(e){ rec=null; }
+}
+function recStop(){
+  return new Promise(res=>{
+    if(!rec || rec.state==="inactive"){ res(null); return; }
+    const r=rec; rec=null;
+    r.onstop=()=>{ const b=recChunks.length? new Blob(recChunks,{type:r.mimeType||"video/mp4"}) : null; recChunks=[]; res(b); };
+    try{ r.stop(); }catch(e){ res(null); }
+  });
 }
 
 /* Boucle du direct : repérage du disque, stabilité, puis enregistrement automatique */
@@ -837,7 +871,7 @@ function autoFind(img, col){
 }
 function startLive(){
   const mpp=mppNow(); if(!isFinite(mpp)) return;
-  running=true; samples=[]; liveSpoken=0; liveStopSaid=false; lastRepT=0;
+  running=true; samples=[]; liveSpoken=0; liveStopSaid=false; lastRepT=0; recStart();
   $("bGo").textContent="Terminer la série"; $("bGo").disabled=false; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
   setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
 }
@@ -958,7 +992,11 @@ function addSetToSess(res){
   const sm=setSummary(res.reps);
   let txt = sm.n ? `Série ${k} : ${sm.n} répétitions. Meilleure ${spokenNum(sm.best)}. Perte ${Math.round(sm.loss)} pour cent.` : `Série ${k} : aucune répétition détectée.`;
   if(sm.hitAt) txt += ` Seuil atteint à la répétition ${sm.hitAt}.`;
-  if(ss.done.length>=ss.sets){ ss.over=true; txt += " Séance terminée, bravo."; }
+  if(ss.done.length>=ss.sets){
+    ss.over=true;
+    const nx = ss.plan && ss.plan.exercises[ss.plan.idx+1];
+    txt += nx ? ` ${EXOS[ss.exo]?.name} terminé. Exercice suivant : ${EXOS[nx.exo]?.name||nx.exo}.` : " Séance terminée, bravo.";
+  }
   else txt += ` Prochaine : série ${k+1}.`;
   save(); renderSess(); say(txt, true);
   $("sessCard").scrollIntoView({behavior:"smooth",block:"start"});
@@ -982,6 +1020,9 @@ function renderSess(){
     box.appendChild(row);
   }
   $("sessActions").hidden=!!ss.over;
+  const nx = ss.over && ss.plan && ss.plan.exercises[ss.plan.idx+1];
+  $("sessNext").hidden=!nx; if(nx) $("sessNext").textContent=`Exercice suivant : ${EXOS[nx.exo]?.name||nx.exo}`;
+  $("sessPlan").hidden=!ss.plan; if(ss.plan) $("sessPlan").textContent=`${ss.plan.title||"Séance du coach"} · exercice ${ss.plan.idx+1} sur ${ss.plan.exercises.length}`;
   $("sessLive").textContent=`Série ${k+1} en direct`;
   $("sessEnd").textContent= ss.over? "Fermer la séance" : "Terminer la séance";
 }
@@ -993,11 +1034,25 @@ $("setsPlus").onclick=()=>{ $("setsN").value=Math.min(20,clampSets($("setsN").va
 $("sessGo").onclick=()=>{
   unlockVoice();
   S.exo=$("exoSel").value; S.load=$("load").value; S.vloss=$("vloss").value; S.lastSets=clampSets($("setsN").value);
-  S.sess={exo:S.exo, load:S.load, sets:S.lastSets, start:Date.now(), done:[], over:false};
+  S.sess={exo:S.exo, load:S.load, sets:S.lastSets, start:Date.now(), key:"s"+Date.now(), vloss:S.vloss, done:[], over:false};
   save(); renderSess();
   say(`Séance de ${EXOS[S.exo].name}, ${S.lastSets} séries. Pose le téléphone et lance la série 1.`, true);
 };
 $("sessLive").onclick=()=>{ $("bLive").click(); };
+// Séance programmée : un ou plusieurs exercices à la suite
+function startPlanExercise(plan, idx){
+  const e=plan.exercises[idx]; if(!e) return;
+  S.exo=EXOS[e.exo]? e.exo : "squat"; S.metric=EXOS[S.exo].metric; $("metric").value=S.metric;
+  if(e.load!=null && e.load!=="") S.load=String(e.load);
+  if(e.vloss!=null && e.vloss!=="") S.vloss=String(e.vloss);
+  $("load").value=S.load; $("vloss").value=S.vloss;
+  S.sess={exo:S.exo, load:S.load, sets:Math.max(1,+e.sets||1), start:Date.now(), key:plan.key, vloss:S.vloss, done:[], over:false, plan:{...plan, idx}};
+  save(); renderSess();
+  say(`${EXOS[S.exo].name}, ${S.sess.sets} séries${S.load? " à "+S.load+" kilos":""}. Pose le téléphone et lance la série 1.`, true);
+  $("sessCard").scrollIntoView({behavior:"smooth",block:"start"});
+}
+window.startPlan = (plan)=>{ unlockVoice(); startPlanExercise({...plan, key: plan.key || ("p"+Date.now())}, 0); };
+$("sessNext").onclick=()=>{ const ss=S.sess; if(ss?.plan) startPlanExercise(ss.plan, ss.plan.idx+1); };
 $("sCam").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
 $("sLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
 $("sessEnd").onclick=()=>{
@@ -1085,5 +1140,6 @@ const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("chan
 runDemo(false);
 </script>
 
+<script src="cloud.js"></script>
 </body>
 </html>
