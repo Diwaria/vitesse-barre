@@ -333,7 +333,7 @@ function grayOf(img){
   for(let i=0,k=0,j=0;i<N;i++,k+=4,j+=3){ const r=d[k],gg=d[k+1],b=d[k+2]; g[j]=0.299*r+0.587*gg+0.114*b; g[j+1]=0.5*(r-gg); g[j+2]=0.5*(b-gg); }
   return g;
 }
-function ringScore(g,W,H,cx,cy,r){
+function ringScore(g,W,H,cx,cy,r,pol){
   // contraste signé entre l'extérieur et l'intérieur du cercle : il doit avoir le même sens tout autour
   // (disque plus sombre ou plus coloré que le fond), ce qui écarte les cercles qui ne font que croiser des bords
   const dr=Math.max(2,r*0.06); let sL=0,sA=0,sB=0,n=0;
@@ -344,7 +344,19 @@ function ringScore(g,W,H,cx,cy,r){
     const a=(yo*W+xo)*3, b=(yi*W+xi)*3;
     sL+=cap(g[a]-g[b]); sA+=cap(g[a+1]-g[b+1]); sB+=cap(g[a+2]-g[b+2]); n++;
   }
-  return n>NA*0.6? (Math.abs(sL)+Math.abs(sA)+Math.abs(sB))/n : 0;
+  if(n<=NA*0.6) return 0;
+  // pendant le suivi : même sens de contraste qu'au départ (disque plus sombre que le fond, etc.)
+  if(pol) return Math.max(0, sL*pol[0]+sA*pol[1]+sB*pol[2])/n;
+  return (Math.abs(sL)+Math.abs(sA)+Math.abs(sB))/n;
+}
+function ringSigned(g,W,H,cx,cy,r){
+  const dr=Math.max(2,r*0.06); let sL=0,sA=0,sB=0,n=0; const cap=v=>v>60?60:(v<-60?-60:v);
+  for(let i=0;i<NA;i++){
+    const xo=Math.round(cx+(r+dr)*CS[i]), yo=Math.round(cy+(r+dr)*SN[i]), xi=Math.round(cx+(r-dr)*CS[i]), yi=Math.round(cy+(r-dr)*SN[i]);
+    if(xo<0||yo<0||xo>=W||yo>=H||xi<0||yi<0||xi>=W||yi>=H) continue;
+    const a=(yo*W+xo)*3, b=(yi*W+xi)*3; sL+=cap(g[a]-g[b]); sA+=cap(g[a+1]-g[b+1]); sB+=cap(g[a+2]-g[b+2]); n++;
+  }
+  return n? [sL/n,sA/n,sB/n] : [1,0,0];
 }
 function findCircle(g,W,H,tx,ty){
   const rmax=Math.min(W,H)*0.45, cand=[], R=60;
@@ -388,7 +400,9 @@ class Tracker {
       this.cal = circ && 2*circ.r > Math.max(blob.w,blob.h)*1.15 ? 2*circ.r : blob.h;   // pastille sur le disque : on calibre sur le disque
       if(circ && this.cal===2*circ.r) this.circ=circ;
     } else if(circ){
-      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=circ.r; this.r0=circ.r; this.rs=circ.r; this.score0=circ.score;
+      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=circ.r; this.r0=circ.r; this.rs=circ.r;
+      const sg=ringSigned(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(circ.r));
+      this.pol=sg.map(v=>Math.abs(v)>3?Math.sign(v):0); if(!this.pol.some(v=>v)) this.pol=sg.map(v=>Math.sign(v)); this.score0=Math.max(1, ringScore(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(circ.r),this.pol));
       this.bw=this.bh=2*circ.r; this.cal=2*circ.r; this.circ=circ;
     } else {
       this.mode = "template"; this.r = 14; this.x = x; this.y = y;
@@ -438,17 +452,26 @@ class Tracker {
     return {x:ex,y:ey,ok:false};
   }
   updCircle(img, ex, ey){
-    const g=grayOf(img), W=this.W, H=this.H, r=Math.round(this.rs), R=Math.min(48, 24+this.lost*8);
-    const cx0=Math.round(ex), cy0=Math.round(ey), sc={}; let b=[-1,0,0];
-    for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){ const v=ringScore(g,W,H,cx0+dx,cy0+dy,r); sc[dx+","+dy]=v; if(v>b[0]) b=[v,dx,dy]; }
-    if(b[0] < this.score0*0.45) return null;
+    const g=grayOf(img), W=this.W, H=this.H, r=Math.round(this.rs), pol=this.pol;
+    // recherche large quand la barre va vite (impulsion d'un squat sauté, images sautées) :
+    // centrée entre la dernière position et la position prédite ; grille de 2 px puis affinage au pixel
+    const sp=Math.hypot(ex-this.x, ey-this.y), R=Math.min(80, Math.round(24+this.lost*8+1.3*sp));
+    const cx0=Math.round((this.x+ex)/2), cy0=Math.round((this.y+ey)/2), S2=2*R+1, sc=new Float32Array(S2*S2).fill(-1);
+    // un disque ne se téléporte pas : on pénalise les cercles loin de la position attendue (genoux, banc, montants du rack)
+    const sig=0.5*r+1.5*sp+8*this.lost, is2=1/(sig*sig);
+    const at=(dx,dy)=>{ const k=(dy+R)*S2+dx+R; if(sc[k]<0) sc[k]=ringScore(g,W,H,cx0+dx,cy0+dy,r,pol)*Math.exp(-(dx*dx+dy*dy)*is2); return sc[k]; };
+    let bv=-1,bx=0,by=0;
+    for(let dy=-R;dy<=R;dy+=2) for(let dx=-R;dx<=R;dx+=2){ const v=at(dx,dy); if(v>bv){bv=v;bx=dx;by=dy;} }
+    const cx1=bx, cy1=by;
+    for(let dy=Math.max(-R,cy1-2);dy<=Math.min(R,cy1+2);dy++) for(let dx=Math.max(-R,cx1-2);dx<=Math.min(R,cx1+2);dx++){ const v=at(dx,dy); if(v>bv){bv=v;bx=dx;by=dy;} }
+    if(ringScore(g,W,H,cx0+bx,cy0+by,r,pol) < this.score0*0.45) return null;
     const f=(a,m,c)=>{ const d=a-2*m+c; return Math.abs(d)<1e-6?0:Math.max(-0.5,Math.min(0.5,0.5*(a-c)/d)); };
-    const g0=k=>sc[k]??b[0];
-    const ox=f(g0((b[1]-1)+","+b[2]),b[0],g0((b[1]+1)+","+b[2])), oy=f(g0(b[1]+","+(b[2]-1)),b[0],g0(b[1]+","+(b[2]+1)));
-    const x=cx0+b[1]+ox, y=cy0+b[2]+oy;
+    const nb=(dx,dy)=> (dx<-R||dx>R||dy<-R||dy>R)? bv : at(dx,dy);
+    const ox=f(nb(bx-1,by),bv,nb(bx+1,by)), oy=f(nb(bx,by-1),bv,nb(bx,by+1));
+    const x=cx0+bx+ox, y=cy0+by+oy;
     // taille apparente du disque (il s'éloigne ou se rapproche de l'objectif)
-    const rx=Math.round(x), ry=Math.round(y), rv={}; let br=r, bs=-1;
-    for(let d2=-4;d2<=4;d2++){ const v=ringScore(g,W,H,rx,ry,r+d2); rv[d2]=v; if(v>bs){bs=v;br=d2;} }
+    const rx=Math.round(x), ry=Math.round(y), rv={}; let br=0, bs=-1;
+    for(let d2=-4;d2<=4;d2++){ const v=ringScore(g,W,H,rx,ry,r+d2,pol); rv[d2]=v; if(v>bs){bs=v;br=d2;} }
     const rf = r + br + (Math.abs(br)<4 ? f(rv[br-1],bs,rv[br+1]) : 0);
     this.rs = this.rs*0.6 + rf*0.4; this.r=Math.round(this.rs);
     return {x,y};
@@ -510,7 +533,7 @@ function analyze(samples, mpp, exoKey, partial){
   const h2=Math.max(0.07, 3.5/fps);
   for(let i=0;i<n;i++){ const f=quadFit(t,v,i,h2); a[i]= f? f[1] : 0; }
   const minRom = EXOS[exoKey].rom, up=0.06, reps=[];
-  let i=0, rest=0.04, lastE=-1;
+  let i=0, rest=0.04, lastE=-1, lastRep=-1;
   while(i<n){
     if(v[i] <= up){ i++; continue; }
     // début/fin de la montée : passage par zéro (squat, développé…), ou décollage net du sol (soulevé de terre, haltérophilie)
@@ -534,8 +557,9 @@ function analyze(samples, mpp, exoKey, partial){
     // (le dérackage, le pas en arrière et le rerackage sont ignorés)
     let eccOk = true;
     if(EXOS[exoKey].ecc){
-      let top=-Infinity; for(let k=s; k>lastE && k>=0 && t[s]-t[k]<=6; k--) if(y[k]>top) top=y[k];
-      eccOk = top - y[s] >= 0.7*rom;
+      let top=-Infinity; for(let k=s; k>lastRep && k>=0 && t[s]-t[k]<=6; k--) if(y[k]>top) top=y[k];   // depuis la fin de la dernière vraie rép.
+      // descente d'au moins la moitié de la montée (un squat sauté monte plus haut qu'il n'est descendu)
+      eccOk = top - y[s] >= Math.max(0.8*minRom, 0.5*rom);
     }
     if(rom >= minRom && eccOk && (complete || !partial)){
       let pk=s; for(let k=s;k<=e;k++) if(v[k]>v[pk]) pk=k;
@@ -549,6 +573,7 @@ function analyze(samples, mpp, exoKey, partial){
         mcv: rom/dur,
         mpv: (y[pe]-y[s])/Math.max(1e-3,t[pe]-ts),
         peak: v[pk]});
+      lastRep=e;
     }
     lastE=Math.max(e,e0); i=lastE+1;
   }
