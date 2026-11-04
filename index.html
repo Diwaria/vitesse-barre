@@ -76,7 +76,11 @@ button:disabled{opacity:.45;cursor:default}
 .setrow.todo{opacity:.55}
 .setrow.cur{outline:2px solid var(--accent)}
 .lossok{color:var(--ok)}.lossbad{color:var(--bad)}
-.banner{position:absolute;left:8px;right:8px;bottom:8px;padding:10px 12px;border-radius:10px;font-weight:700;font-size:16px;text-align:center;color:#fff;background:rgba(20,27,32,.78);transition:background .25s}
+.banner{position:absolute;left:8px;right:8px;bottom:8px;padding:12px 12px;border-radius:10px;font-weight:700;font-size:clamp(16px,4.8vw,22px);text-align:center;color:#fff;background:rgba(20,27,32,.78);transition:background .25s}
+.stage.mirror canvas{transform:scaleX(-1)}
+.stage{outline:0 solid transparent;transition:outline-color .2s}
+.stage.locked{outline:6px solid #13a35a;outline-offset:-6px}
+.stage.lost{outline:6px solid #cf3d1c;outline-offset:-6px}
 .banner.hold{background:rgba(182,123,5,.92)}
 .banner.go{background:#13a35a;box-shadow:0 0 0 3px rgba(19,163,90,.35),0 0 24px rgba(53,224,138,.7)}
 .banner.bad{background:rgba(207,61,28,.92)}
@@ -133,6 +137,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
           <div class="stepper"><button type="button" id="setsMinus" aria-label="Une série de moins">−</button><input id="setsN" type="number" inputmode="numeric" min="1" max="20" value="4"><button type="button" id="setsPlus" aria-label="Une série de plus">+</button></div></div>
         <label class="field"><span class="lbl">Charge (kg)</span><input id="load" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
         <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
+        <label class="field"><span class="lbl">Perte calculée par rapport à</span><select id="lossRef"><option value="best">la meilleure répétition</option><option value="first">la 1re répétition</option></select></label>
       </div>
       <label class="toggle"><input id="voiceReps" type="checkbox" checked> Annoncer aussi la vitesse de chaque répétition</label>
       <div class="row"><button type="button" id="sessCancel">Annuler</button><button type="button" class="primary" id="sessGo">Lancer la séance</button></div>
@@ -156,7 +161,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
   <section class="card" id="stageCard" hidden aria-labelledby="t-stage">
     <div class="row" style="justify-content:space-between">
       <h2 id="t-stage" style="flex:0 1 auto">Repère et calibration</h2>
-      <button type="button" id="bCancel" style="flex:0 0 auto">Fermer</button>
+      <span class="row" style="flex:0 0 auto;gap:8px"><button type="button" id="bFlip" hidden>Caméra avant</button><button type="button" id="bCancel">Fermer</button></span>
     </div>
     <p class="hint" id="hint">Touchez le centre du disque (le bout de la barre).</p>
     <div class="stage" id="stage"><canvas id="cv" width="640" height="360"></canvas><div class="banner" id="banner" hidden aria-live="polite"></div></div>
@@ -258,9 +263,14 @@ const EXOS = {
   cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"peak"},
   sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"peak"}
 };
+// Perte de vitesse d'une répétition par rapport à la 1re (ou à la meilleure jusque-là)
+function lossAt(vals, i){
+  const ref = S.lossRef==="best" ? Math.max(...vals.slice(0,i+1)) : vals[0];
+  return ref>0 ? (ref-vals[i])/ref*100 : 0;
+}
 const METRIC_NAME = {mcv:"moyenne concentrique",mpv:"moyenne propulsive",peak:"pic"};
 const KEY = "vbt.v1";
-let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,voiceReps:true,history:[],sess:null};
+let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,voiceReps:true,lossRef:"best",facing:"environment",history:[],sess:null};
 try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.parse(raw)); }catch(e){}
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 const $ = id => document.getElementById(id);
@@ -287,7 +297,7 @@ function bindField(id, key, isCheck){
 }
 renderExos();
 bindField("load","load"); bindField("metric","metric"); bindField("zmin","zmin"); bindField("zmax","zmax");
-bindField("vloss","vloss"); bindField("diam","diam"); bindField("voice","voice",true); bindField("voiceReps","voiceReps",true);
+bindField("vloss","vloss"); bindField("diam","diam"); bindField("voice","voice",true); bindField("voiceReps","voiceReps",true); bindField("lossRef","lossRef");
 
 /* ---------- Voix ---------- */
 let voiceFr = null;
@@ -311,13 +321,19 @@ function rgb2hsv(r,g,b){
 /* Contour circulaire du disque : marche pour les disques noirs comme en couleur */
 const NA=72, CS=new Float32Array(NA), SN=new Float32Array(NA);
 for(let i=0;i<NA;i++){ CS[i]=Math.cos(2*Math.PI*i/NA); SN[i]=Math.sin(2*Math.PI*i/NA); }
-function grayOf(img){ const d=img.data, g=new Float32Array(img.width*img.height); for(let i=0,k=0;i<g.length;i++,k+=4) g[i]=0.299*d[k]+0.587*d[k+1]+0.114*d[k+2]; return g; }
+// image en 3 canaux : luminosité + 2 écarts de couleur (un disque rouge sur fond gris a la même luminosité)
+function grayOf(img){
+  const d=img.data, N=img.width*img.height, g=new Float32Array(N*3);
+  for(let i=0,k=0,j=0;i<N;i++,k+=4,j+=3){ const r=d[k],gg=d[k+1],b=d[k+2]; g[j]=0.299*r+0.587*gg+0.114*b; g[j+1]=0.5*(r-gg); g[j+2]=0.5*(b-gg); }
+  return g;
+}
 function ringScore(g,W,H,cx,cy,r){
   const dr=Math.max(2,r*0.06); let s=0,n=0;
   for(let i=0;i<NA;i++){
     const xo=Math.round(cx+(r+dr)*CS[i]), yo=Math.round(cy+(r+dr)*SN[i]), xi=Math.round(cx+(r-dr)*CS[i]), yi=Math.round(cy+(r-dr)*SN[i]);
     if(xo<0||yo<0||xo>=W||yo>=H||xi<0||yi<0||xi>=W||yi>=H) continue;
-    s+=Math.abs(g[yo*W+xo]-g[yi*W+xi]); n++;
+    const a=(yo*W+xo)*3, b=(yi*W+xi)*3;
+    s+=Math.min(60, Math.abs(g[a]-g[b])+Math.abs(g[a+1]-g[b+1])+Math.abs(g[a+2]-g[b+2])); n++;   // plafonné : un bord complet vaut mieux que quelques traits très contrastés
   }
   return n>NA*0.6? s/n : 0;
 }
@@ -330,12 +346,12 @@ function findCircle(g,W,H,tx,ty){
   if(!cand.length) return null;
   cand.sort((a,b)=>b[0]-a[0]);
   const best=cand[0][0];
-  let pick=cand[0]; for(const c of cand){ if(c[0]<best*0.75) break; if(c[3]>pick[3]) pick=c; }   // bord extérieur plutôt que le moyeu
-  let [sc,cx,cy,r]=pick;
+  let pick=cand[0]; for(const c of cand){ if(c[0]<best*0.85) break; if(c[3]>pick[3]) pick=c; }   // bord extérieur plutôt que le bout du manchon
+  let [sc,cx,cy,r]=pick; const rlo=Math.max(14,pick[3]-3);
   for(let it=0;it<3;it++){ let b=[sc,cx,cy,r];
-    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2++){ const s2=ringScore(g,W,H,cx+dx,cy+dy,r+d2); if(s2>b[0]) b=[s2,cx+dx,cy+dy,r+d2]; }
+    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2++){ if(r+d2<rlo) continue; const s2=ringScore(g,W,H,cx+dx,cy+dy,r+d2); if(s2>b[0]) b=[s2,cx+dx,cy+dy,r+d2]; }
     [sc,cx,cy,r]=b; }
-  return sc>=22 ? {score:sc,x:cx,y:cy,r} : null;
+  return sc>=15 ? {score:sc,x:cx,y:cy,r} : null;
 }
 class Tracker {
   constructor(img, x, y, colModel){
@@ -554,7 +570,7 @@ function closeStage(){
   running=false;
   if(src?.stream) src.stream.getTracks().forEach(t=>t.stop());
   if(src?.video){ try{ src.video.pause(); }catch(e){} if(src.url) URL.revokeObjectURL(src.url); src.video.remove(); }
-  src=null; $("stageCard").hidden=true; $("banner").hidden=true; releaseWake();
+  src=null; $("stageCard").hidden=true; $("banner").hidden=true; $("bFlip").hidden=true; $("stage").classList.remove("mirror","locked"); releaseWake();
 }
 $("bCancel").onclick = closeStage;
 
@@ -589,24 +605,41 @@ $("fLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.
 let wake=null;
 async function holdWake(){ try{ wake = await navigator.wakeLock?.request("screen"); }catch(e){} }
 function releaseWake(){ try{ wake?.release(); }catch(e){} wake=null; }
+async function openCamera(){
+  return navigator.mediaDevices.getUserMedia({video:{facingMode:S.facing||"environment",frameRate:{ideal:60},width:{ideal:1280}},audio:false});
+}
 $("bLive").onclick = async ()=>{
   unlockVoice(); $("liveMsg").hidden=true;
   let stream;
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",frameRate:{ideal:60},width:{ideal:1280}},audio:false});
-  }catch(e){
+  try{ stream = await openCamera(); }
+  catch(e){
     $("liveMsg").hidden=false;
     $("liveMsg").textContent="La caméra n'a pas pu s'ouvrir. Vérifiez que Safari a le droit d'utiliser la caméra (Réglages › Safari › Caméra), puis réessayez. Sinon, utilisez « Filmer une série ».";
+    if(S.sess){ $("sessMsg").hidden=false; $("sessMsg").textContent=$("liveMsg").textContent; }
     return;
   }
   closeStage(); openStage();
+  await attachLive(stream);
+  holdWake(); liveLoop();
+};
+async function attachLive(stream){
   const video=document.createElement("video"); video.muted=true; video.playsInline=true; video.setAttribute("playsinline","");
   video.srcObject=stream; $("stage").appendChild(video); await video.play();
   const [w,h]=sizeFor(video.videoWidth, video.videoHeight); cv.width=w; cv.height=h;
   src={kind:"live",video,stream,w,h};
+  // caméra avant : image en miroir, comme dans l'appareil photo (la vitesse verticale ne change pas)
+  $("stage").classList.toggle("mirror", S.facing==="user");
+  $("bFlip").hidden=false; $("bFlip").textContent = S.facing==="user" ? "Caméra arrière" : "Caméra avant";
   $("scrubWrap").hidden=true; $("bGo").textContent="Démarrer maintenant";
-  setHint("Posez le téléphone de profil. Touchez le disque s'il n'est pas repéré tout seul.");
-  holdWake(); liveLoop();
+  setHint(S.facing==="user" ? "Posez le téléphone de profil, écran vers vous. Touchez le centre du disque s'il n'est pas repéré." : "Posez le téléphone de profil. Touchez le centre du disque s'il n'est pas repéré tout seul.");
+}
+$("bFlip").onclick = async ()=>{
+  if(!src || src.kind!=="live" || running) return;
+  S.facing = S.facing==="user" ? "environment" : "user"; save();
+  src.stream.getTracks().forEach(t=>t.stop()); src.video.remove();
+  tracker=null; tapPt=null; calPts=[];
+  let stream; try{ stream=await openCamera(); }catch(e){ setHint("Impossible d'ouvrir cette caméra."); return; }
+  await attachLive(stream); liveLoop();
 };
 
 /* ---------- Choix du repère et calibration ---------- */
@@ -618,7 +651,8 @@ $("diam").addEventListener("input", ()=>{ S.diam=$("diam").value; updateCal(); }
 
 cv.addEventListener("click", ev=>{
   if(running || !setupImg) return;
-  const r=cv.getBoundingClientRect(), x=(ev.clientX-r.left)*cv.width/r.width, y=(ev.clientY-r.top)*cv.height/r.height;
+  const r=cv.getBoundingClientRect(); let x=(ev.clientX-r.left)*cv.width/r.width; const y=(ev.clientY-r.top)*cv.height/r.height;
+  if($("stage").classList.contains("mirror")) x=cv.width-x;
   if(calMode==="two" && tapPt){
     if(calPts.length>=2) calPts=[]; calPts.push({x,y}); updateCal(); redrawSetup(); return;
   }
@@ -649,9 +683,9 @@ function updateCal(){
   const info=$("calInfo");
   if(!tracker){ info.textContent=""; $("bGo").disabled=true; return; }
   const mpp=mppNow();
-  let t = tracker.mode==="circle" ? `Contour du disque détecté (${tracker.bh} px de diamètre). ` : tracker.mode==="color" ? `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). ` : "Contour du disque non trouvé : repère suivi par sa texture. ";
+  let t = tracker.mode==="circle" ? `Contour du disque détecté (${Math.round(tracker.bh)} px de diamètre). ` : tracker.mode==="color" ? `Repère couleur détecté (${tracker.bw}×${tracker.bh} px). ` : "Contour du disque non trouvé : repère suivi par sa texture. ";
   if(calMode==="auto"){
-    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${tracker.bh} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le cercle vert suit bien le bord du disque.` : "";
+    t += isFinite(mpp) ? `Disque de ${num(pf(S.diam)||45,1)} cm = ${Math.round(tracker.bh)} px, soit ${num(mpp*1000,1)} mm par pixel. Vérifiez que le cercle vert suit bien le bord du disque.` : "";
   } else {
     t += calPts.length<2 ? `Touchez maintenant ${calPts.length? "le 2e point":"deux points"} dont vous connaissez la distance (ex. haut et bas du disque).` : `${num(mpp*1000,1)} mm par pixel.`;
   }
@@ -726,7 +760,8 @@ function finishSet(mpp, origin){
 
 /* Boucle du direct : repérage du disque, stabilité, puis enregistrement automatique */
 let okSince=null, lostSince=null, liveT0=0, liveK=0;
-function banner(state, text){ const b=$("banner"); b.hidden=false; b.className="banner "+state; b.textContent=text; }
+function banner(state, text){ const b=$("banner"); b.hidden=false; b.className="banner "+state; b.textContent=text;
+  $("stage").classList.toggle("locked", state==="go"); $("stage").classList.toggle("lost", state==="bad"); }
 function liveLoop(){
   okSince=null; lostSince=null; liveK=0;
   const v=src.video, hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
@@ -809,11 +844,15 @@ function liveCheck(mpp){
   while(liveSpoken < res.reps.length){
     const rep=res.reps[liveSpoken]; liveSpoken++; lastRepT=rep.t1;
     const val=rep[S.metric];
-    const best=Math.max(...res.reps.map(r=>r[S.metric])); const loss=(best-val)/best*100; const lim=pf(S.vloss);
+    const vals=res.reps.slice(0,liveSpoken).map(r=>r[S.metric]); const loss=lossAt(vals, liveSpoken-1); const lim=pf(S.vloss);
     $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}${liveSpoken>1? " · perte "+Math.round(loss)+" %":""}</small>`;
-    const hit = isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim && !liveStopSaid;
+    const hit = isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim;
     let txt = S.voiceReps ? spokenNum(val) : "";
-    if(hit){ txt += (txt? ". ":"") + `Perte de vitesse de ${Math.round(loss)} pour cent. Arrête la série.`; liveStopSaid=true; banner("bad",`Perte de vitesse ${Math.round(loss)} % · arrête la série`); }
+    if(hit){
+      // à chaque répétition au-delà du seuil : le pourcentage de perte
+      txt += (txt? ". ":"") + `Perte de vitesse ${Math.round(loss)} pour cent` + (liveStopSaid? "." : ". Arrête la série.");
+      liveStopSaid=true; banner("bad",`Perte de vitesse ${Math.round(loss)} % · arrête la série`);
+    }
     if(txt) say(txt, true);
   }
 }
@@ -831,7 +870,7 @@ function setStats(res){
   const m=S.metric, vals=res.reps.map(r=>r[m]);
   if(!vals.length) return null;
   const best=Math.max(...vals), last=vals[vals.length-1], first=vals[0];
-  return {m, vals, best, last, first, loss:(best-last)/best*100, avg:vals.reduce((p,q)=>p+q,0)/vals.length};
+  return {m, vals, best, last, first, loss:lossAt(vals, vals.length-1), avg:vals.reduce((p,q)=>p+q,0)/vals.length};
 }
 function renderResult(res){
   $("resBadge").textContent = res.demo? "Exemple simulé" : (res.origin==="direct"?"Direct":"Vidéo");
@@ -849,7 +888,7 @@ function renderResult(res){
     for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
     const lim=pf(S.vloss);
     res.reps.forEach((r,i)=>{
-      const val=r[st.m], z=zoneOf(val), loss=(st.best-val)/st.best*100;
+      const val=r[st.m], z=zoneOf(val), loss=lossAt(st.vals, i);
       const el=document.createElement("div"); el.className="rep "+z;
       el.innerHTML=`<span class="n">${i+1}</span>
         <div><div class="v">${num(val)}<small>m/s${isFinite(lim)&&lim>0&&i>0&&loss>=lim?" · perte "+Math.round(loss)+" %":""}</small></div><div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
@@ -907,8 +946,8 @@ function setSummary(reps){
   const vals=reps.map(r=>r[S.metric]); if(!vals.length) return {n:0};
   const best=Math.max(...vals), last=vals[vals.length-1];
   const lim=pf(S.vloss); let hitAt=0;
-  vals.forEach((v,i)=>{ if(!hitAt && i>0 && isFinite(lim) && lim>0 && (best-v)/best*100>=lim) hitAt=i+1; });
-  return {n:vals.length,best,last,loss:(best-last)/best*100,hitAt};
+  vals.forEach((v,i)=>{ if(!hitAt && i>0 && isFinite(lim) && lim>0 && lossAt(vals,i)>=lim) hitAt=i+1; });
+  return {n:vals.length,best,last,loss:lossAt(vals, vals.length-1),hitAt};
 }
 function addSetToSess(res){
   const ss=S.sess, k=ss.done.length+1;
@@ -934,7 +973,7 @@ function renderSess(){
     row.className="setrow"+(d?"":(i===k && !ss.over?" cur":" todo"));
     if(d){
       const sm=setSummary(d.reps);
-      row.innerHTML = sm.n ? `<span class="k">S${i+1}</span><span class="m">${sm.n} rép. · meilleure <b>${num(sm.best)}</b> · dernière <b>${num(sm.last)}</b> m/s</span><span class="l ${sm.hitAt?"lossbad":"lossok"}">−${Math.round(sm.loss)} %</span>`
+      row.innerHTML = sm.n ? `<span class="k">S${i+1}</span><span class="m">${sm.n} rép. · meilleure <b>${num(sm.best)}</b> · dernière <b>${num(sm.last)}</b> m/s</span><span class="l ${sm.hitAt?"lossbad":"lossok"}">${sm.loss>=0?"−":"+"}${Math.abs(Math.round(sm.loss))} %</span>`
                            : `<span class="k">S${i+1}</span><span class="m">aucune répétition détectée</span><span></span>`;
     } else row.innerHTML=`<span class="k">S${i+1}</span><span class="m">${i===k?"à filmer":"à venir"}</span><span></span>`;
     box.appendChild(row);
@@ -977,7 +1016,7 @@ function renderHistory(){
     const vals=h.reps.map(r=>r[S.metric]); const best=Math.max(...vals), last=vals[vals.length-1];
     const b=document.createElement("button"); b.type="button"; b.className="hrow";
     const d=new Date(h.date);
-    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} · ${h.reps.length} rép.</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round((best-last)/best*100)} %</span></span>`;
+    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} · ${h.reps.length} rép.</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round(lossAt(vals, vals.length-1))} %</span></span>`;
     b.onclick=()=>{ say(`${EXOS[h.exo]?.name}. ${h.reps.length} répétitions. Meilleure ${spokenNum(best)}.`, true); };
     box.appendChild(b);
   });
