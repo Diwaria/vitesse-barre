@@ -3,7 +3,8 @@
 (function(){
   const cfg = window.VB_CONFIG || {};
   const card = document.getElementById("cloudCard");
-  if(!cfg.url || !cfg.key || !window.supabase){ return; }
+  if(!cfg.url || !cfg.key){ return; }
+  if(!window.supabase){ if(card){ card.hidden=false; card.innerHTML='<h2>Mon compte</h2><p class="note">Connexion au serveur impossible pour le moment. Vérifie ta connexion internet puis recharge la page.</p>'; } return; }
   const sb = window.supabase.createClient(cfg.url, cfg.key);
   window.SB = sb;
   const $ = id => document.getElementById(id);
