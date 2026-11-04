@@ -255,13 +255,13 @@ const EXOS = {
   fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv"},
   hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv"},
   rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv"},
-  dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv"},
+  dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true},
   bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv"},
   ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv"},
   row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv"},
-  clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"peak"},
-  cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"peak"},
-  sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"peak"}
+  clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"peak",floor:true},
+  cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"peak",floor:true},
+  sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"peak",floor:true}
 };
 // Perte de vitesse d'une répétition par rapport à la 1re (ou à la meilleure jusque-là)
 function lossAt(vals, i){
@@ -512,10 +512,10 @@ function analyze(samples, mpp, exoKey, partial){
   let i=0, rest=0.04, lastE=-1;
   while(i<n){
     if(v[i] <= up){ i++; continue; }
-    // pic de la montée, puis seuil de début/fin relatif au pic (12 %, au moins 0,04 m/s)
+    // début/fin de la montée : passage par zéro (squat, développé…), ou décollage net du sol (soulevé de terre, haltérophilie)
     let e0=i; while(e0<n-1 && v[e0+1]>0.04) e0++;
     let pk0=i; for(let k=i;k<=e0;k++) if(v[k]>v[pk0]) pk0=k;
-    rest=Math.max(0.04, 0.12*v[pk0]);
+    rest = EXOS[exoKey].floor ? Math.max(0.04, 0.12*v[pk0]) : 0.02;
     let s=pk0; while(s>lastE+1 && v[s-1]>rest) s--;
     let e=pk0; while(e<n-1 && v[e+1]>rest) e++;
     // fusion : point mort au milieu de la montée (pas le petit rebond au verrouillage)
