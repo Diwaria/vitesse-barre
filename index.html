@@ -118,8 +118,9 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .livebig{font-family:var(--display);font-weight:700;font-size:72px;line-height:1;text-align:center;font-variant-numeric:tabular-nums}
 .livebig small{font-size:22px;color:var(--muted);font-weight:500}
 
-.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media (max-width:420px){.sum{grid-template-columns:repeat(2,1fr)}}
+@media (min-width:421px){#pSum{grid-template-columns:repeat(4,1fr)}}
 .stat{background:var(--sunk);border-radius:10px;padding:8px 10px;min-width:0}
 .stat b{display:block;font-family:var(--display);font-size:26px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
 .stat span{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
@@ -134,6 +135,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .rep .bar{height:6px;border-radius:3px;background:var(--line);margin-top:5px;overflow:hidden}
 .rep .bar i{display:block;height:100%;background:var(--accent)}
 .rep .det{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;line-height:1.35}
+.rep .det b{color:var(--fg);font-weight:600;font-size:13px}
 .chart{width:100%;height:auto;display:block;border-radius:10px;background:var(--sunk)}
 .hist{display:flex;flex-direction:column;gap:6px}
 .hrow{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 10px;background:var(--sunk);border-radius:10px;font-size:14px;font-variant-numeric:tabular-nums;cursor:pointer;text-align:left;border:0;width:100%;font-weight:400}
@@ -289,6 +291,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div class="grid2">
       <label class="field"><span class="lbl">Exercice</span><select id="qExo"></select></label>
       <label class="field"><span class="lbl">Charge (kg)</span><input id="qLoad" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
+      <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="qLoss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
     </div>
     <div class="actions">
       <button id="bLive" type="button" class="primary big">Caméra en direct</button>
@@ -412,7 +415,7 @@ function renderExos(){
     sel.value=S.exo;
     sel.onchange=()=>{ S.exo=sel.value; S.metric=EXOS[S.exo].metric; $("metric").value=S.metric; save(); };
   }
-  $("qLoad").value=S.load||"";
+  $("qLoad").value=S.load||""; $("qLoss").value=S.vloss||"";
 }
 function bindField(id, key, isCheck){
   const el = $(id);
@@ -1102,7 +1105,9 @@ function renderResult(res){
   if(!st){
     sum.innerHTML=""; reps.innerHTML=`<p class="note">Aucune répétition détectée. Vérifiez que le repère reste visible pendant toute la série et que la calibration est correcte. Amplitude minimale pour cet exercice : ${Math.round(EXOS[res.exo].rom*100)} cm.</p>`;
   } else {
-    const cells=[["Répétitions",String(st.vals.length)],["Meilleure",num(st.best)],["Dernière",num(st.last)],["Perte",Math.round(st.loss)+" %"]];
+    const roms=res.reps.map(r=>r.rom*100), romAvg=roms.reduce((a,b)=>a+b,0)/roms.length;
+    const cells=[["Répétitions",String(st.vals.length)],["Meilleure",num(st.best)],["Dernière",num(st.last)],["Perte",Math.round(st.loss)+" %"],
+      ["Amplitude moyenne",Math.round(romAvg)+" cm"],["Écart d'amplitude",(roms.length>1? Math.round(Math.max(...roms)-Math.min(...roms)) : 0)+" cm"]];
     for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
     const lim=pf(S.vloss);
     res.reps.forEach((r,i)=>{
@@ -1110,7 +1115,7 @@ function renderResult(res){
       const el=document.createElement("div"); el.className="rep "+z;
       el.innerHTML=`<span class="n">${i+1}</span>
         <div><div class="v">${num(val)}<small>m/s${isFinite(lim)&&lim>0&&i>0&&loss>=lim?" · perte "+Math.round(loss)+" %":""}</small></div><div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
-        <div class="det">pic ${num(r.peak)}<br>${Math.round(r.rom*100)} cm · ${num(r.dur,2)} s</div>`;
+        <div class="det"><b>amplitude ${Math.round(r.rom*100)} cm</b><br>pic ${num(r.peak)} · ${num(r.dur,2)} s</div>`;
       reps.appendChild(el);
     });
   }
@@ -1413,6 +1418,7 @@ $("tSet").onclick=()=>go("settings");
 $("tProf").onclick=()=>go("profile");
 $("bHome").onclick=()=>{ if(history.state?.v && history.state.v!=="home" && history.length>1) history.back(); else go("home"); };
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
+$("qLoss").addEventListener("input", e=>{ S.vloss=e.target.value; $("vloss").value=S.vloss; save(); });
 renderHistory();
 go("home");
 
