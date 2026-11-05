@@ -155,6 +155,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
         <button type="button" class="primary big" id="sessLive"></button>
         <label class="btn">Filmer<input id="sCam" type="file" accept="video/*" capture="environment"></label>
         <label class="btn">Photothèque<input id="sLib" type="file" accept="video/*"></label>
+        <button type="button" class="camSel">Caméra : arrière</button>
       </div>
       <p class="warnbox" id="sessMsg" hidden></p>
       <button type="button" class="primary big" id="sessNext" hidden>Exercice suivant</button>
@@ -214,6 +215,7 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
       <button id="bLive" type="button" class="primary big">Caméra en direct</button>
       <label class="btn">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
       <label class="btn">Importer depuis la photothèque<input id="fLib" type="file" accept="video/*"></label>
+      <button type="button" class="camSel">Caméra : arrière</button>
     </div>
     <p class="warnbox" id="liveMsg" hidden></p>
     <details>
@@ -666,9 +668,19 @@ async function attachLive(stream){
   $("scrubWrap").hidden=true; $("bGo").textContent="Démarrer maintenant";
   setHint(S.facing==="user" ? "Posez le téléphone de profil, écran vers vous. Touchez le centre du disque s'il n'est pas repéré." : "Posez le téléphone de profil. Touchez le centre du disque s'il n'est pas repéré tout seul.");
 }
+// choix de la caméra avant d'ouvrir (direct et « Filmer ») : arrière ou avant (selfie)
+function syncCam(){
+  const front = S.facing==="user";
+  document.querySelectorAll(".camSel").forEach(b=>{ b.textContent = front ? "Caméra : avant (selfie)" : "Caméra : arrière"; b.setAttribute("aria-pressed", String(front)); });
+  ["sCam","fCam"].forEach(id=>{ const el=$(id); if(el) el.setAttribute("capture", front ? "user" : "environment"); });
+}
+document.querySelectorAll(".camSel").forEach(b=>b.onclick=()=>{ S.facing = S.facing==="user" ? "environment" : "user"; save(); syncCam(); });
+syncCam();
 $("bFlip").onclick = async ()=>{
-  if(!src || src.kind!=="live" || running) return;
-  S.facing = S.facing==="user" ? "environment" : "user"; save();
+  if(!src || src.kind!=="live") return;
+  // série commencée : on l'annule pour changer de caméra
+  if(running){ running=false; samples=[]; await recStop(); $("liveBig").hidden=true; $("bGo").textContent="Démarrer maintenant"; }
+  S.facing = S.facing==="user" ? "environment" : "user"; save(); syncCam();
   src.stream.getTracks().forEach(t=>t.stop()); src.video.remove();
   tracker=null; tapPt=null; calPts=[];
   let stream; try{ stream=await openCamera(); }catch(e){ setHint("Impossible d'ouvrir cette caméra."); return; }
