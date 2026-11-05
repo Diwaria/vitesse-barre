@@ -138,6 +138,22 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .hist{display:flex;flex-direction:column;gap:6px}
 .hrow{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 10px;background:var(--sunk);border-radius:10px;font-size:14px;font-variant-numeric:tabular-nums;cursor:pointer;text-align:left;border:0;width:100%;font-weight:400}
 .hrow b{font-weight:600}
+.off{display:none!important}
+header{align-items:center;justify-content:flex-start;flex-wrap:nowrap}
+.hlogo{width:44px;height:44px;border-radius:10px;flex:0 0 auto}
+.topnav{display:flex;align-items:center;gap:10px;min-height:44px}
+.topnav h1{font-size:22px;flex:1 1 auto;min-width:0}
+.topnav button{padding:8px 12px;flex:0 0 auto}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tile{flex-direction:column;align-items:flex-start;justify-content:flex-end;text-align:left;gap:4px;min-height:112px;padding:14px;border-radius:14px;background:var(--surface)}
+.tile b{font-family:var(--display);font-size:18px;text-transform:uppercase;letter-spacing:.02em;line-height:1.1}
+.tile span{font-weight:400;font-size:13px;color:var(--muted)}
+.tile.main{grid-column:1/-1;min-height:120px;background:var(--accent);border-color:var(--accent);color:#fff}
+.tile.main span{color:rgba(255,255,255,.85)}
+.linkbtn{align-self:flex-start;border:0;background:none;padding:4px 0;color:var(--accent)}
+button.danger{color:var(--bad);border-color:var(--bad)}
+.hrow .sub{font-size:12px}
+.hday{margin-top:8px}
 details summary{cursor:pointer;font-weight:600}
 details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-direction:column;gap:6px;font-size:14px}
 
@@ -165,21 +181,28 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 </style>
 
 <div class="wrap">
-  <header>
-    <h1>Vitesse de barre</h1>
-    <span class="sub" id="status">Vitesse concentrique par répétition</span>
+  <header id="homeHead" data-v="home">
+    <img src="img/logo.svg" alt="" width="44" height="44" class="hlogo">
+    <div><h1>Vitesse de barre</h1>
+    <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
+  <nav class="topnav" id="topNav" data-v="sess quick settings hist">
+    <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
+    <h1 id="viewTitle"></h1>
+  </nav>
 
-  <section class="card" id="cloudCard" hidden aria-labelledby="t-cloud"></section>
+  <div class="tiles" data-v="home">
+    <button type="button" class="tile main" id="tSess"><b id="tSessT">Commencer une séance</b><span id="tSessS">Exercice, séries, charge et perte de vitesse</span></button>
+    <button type="button" class="tile" id="tQuick"><b>Mesure rapide</b><span>Une série isolée, en direct ou en vidéo</span></button>
+    <button type="button" class="tile" id="tHist"><b>Séries enregistrées</b><span id="tHistS">Revoir ou supprimer vos séries</span></button>
+    <button type="button" class="tile" id="tSet"><b>Réglages</b><span>Vitesse affichée, zone cible, disque, voix</span></button>
+  </div>
 
-  <section class="card" id="sessCard" aria-labelledby="t-sess">
-    <div id="sessIdle" class="col">
-      <h2 id="t-sess">Séance</h2>
-      <button type="button" class="primary big" id="bSess">Commencer une séance</button>
-      <p class="note">Choisissez un exercice et un nombre de séries. Chaque série est filmée et mesurée, avec une alerte vocale quand la perte de vitesse est atteinte.</p>
-    </div>
+  <section class="card" id="cloudCard" data-v="home" hidden aria-labelledby="t-cloud"></section>
+
+  <section class="card" id="sessCard" data-v="sess" aria-labelledby="t-sess">
     <div id="sessForm" class="col" hidden>
-      <h2>Nouvelle séance</h2>
+      <h2 id="t-sess">Nouvelle séance</h2>
       <label class="field"><span class="lbl">Exercice</span><select id="exoSel"></select></label>
       <div class="grid2">
         <div class="field"><span class="lbl">Nombre de séries</span>
@@ -233,10 +256,11 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </div>
   </section>
 
-  <section class="card" id="resCard" aria-labelledby="t-res">
+  <section class="card" id="resCard" data-v="sess quick hist" hidden aria-labelledby="t-res">
+    <button type="button" id="bResBack" class="linkbtn" hidden>‹ Toutes les séries</button>
     <div class="row" style="justify-content:space-between">
       <h2 id="t-res" style="flex:0 1 auto">Résultats</h2>
-      <span class="badge" id="resBadge" style="flex:0 0 auto">Exemple simulé</span>
+      <span class="badge" id="resBadge" style="flex:0 0 auto"></span>
     </div>
     <p class="note" id="resMeta"></p>
     <div class="sum" id="sum"></div>
@@ -245,19 +269,22 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <div class="lbl" style="margin-bottom:6px">Vitesse de la barre (m/s) dans le temps</div>
       <canvas class="chart" id="chartV" width="680" height="300"></canvas>
     </div>
-    <div>
+    <div id="pathWrap">
       <div class="lbl" style="margin-bottom:6px">Trajectoire de la barre</div>
       <canvas class="chart" id="chartP" width="640" height="360"></canvas>
     </div>
     <div class="row">
       <button type="button" id="bSpeak">Relire à voix haute</button>
-      <button type="button" id="bDemo">Rejouer la démo</button>
+      <button type="button" id="bDel" class="danger" hidden>Supprimer cette série</button>
     </div>
   </section>
 
-  <section class="card" aria-labelledby="t-go">
-    <h2 id="t-go">Mesure rapide</h2>
-    <p class="note" style="margin:0">Une série isolée, hors séance, avec l'exercice et la charge de la dernière séance.</p>
+  <section class="card" id="quickCard" data-v="quick" aria-labelledby="t-go">
+    <h2 id="t-go" hidden>Mesure rapide</h2>
+    <div class="grid2">
+      <label class="field"><span class="lbl">Exercice</span><select id="qExo"></select></label>
+      <label class="field"><span class="lbl">Charge (kg)</span><input id="qLoad" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
+    </div>
     <div class="actions">
       <button id="bLive" type="button" class="primary big">Caméra en direct</button>
       <label class="btn">Filmer une série<input id="fCam" type="file" accept="video/*" capture="environment"></label>
@@ -277,8 +304,8 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </details>
   </section>
 
-  <section class="card" aria-labelledby="t-set">
-    <h2 id="t-set">Réglages</h2>
+  <section class="card" id="setCard" data-v="settings" aria-labelledby="t-set">
+    <h2 id="t-set" hidden>Réglages</h2>
     <div class="grid2">
       <label class="field"><span class="lbl">Vitesse affichée</span>
         <select id="metric">
@@ -293,10 +320,14 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <label class="toggle"><input id="voice" type="checkbox" checked> Annonces vocales</label>
   </section>
 
-  <section class="card" aria-labelledby="t-hist">
-    <h2 id="t-hist">Séries enregistrées</h2>
+  <section class="card" id="histCard" data-v="hist" aria-labelledby="t-hist">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="t-hist" style="flex:0 1 auto" class="lbl">Les plus récentes d'abord</h2>
+      <span class="badge" id="histCount" style="flex:0 0 auto"></span>
+    </div>
+    <label class="field" id="histFilterWrap"><span class="lbl">Exercice</span><select id="histFilter"><option value="">Tous les exercices</option></select></label>
     <div class="hist" id="hist"></div>
-    <p class="note" id="histEmpty">Vos séries analysées apparaîtront ici, sur ce téléphone.</p>
+    <p class="note" id="histEmpty">Vos séries analysées apparaîtront ici, sur ce téléphone. Touchez une série pour revoir la vitesse de chaque répétition.</p>
   </section>
 </div>
 
@@ -331,8 +362,8 @@ const $ = id => document.getElementById(id);
 const num = (x,d=2) => (isFinite(x)? x.toFixed(d).replace(".",",") : "–");
 const pf = s => { const v = parseFloat(String(s).replace(",", ".")); return isFinite(v)? v : NaN; };
 
-function renderExos(){
-  const sel=$("exoSel"); sel.textContent="";
+function fillExos(sel){
+  sel.textContent="";
   const cats={};
   for(const [k,e] of Object.entries(EXOS)){ (cats[e.cat] ||= []).push([k,e]); }
   for(const [c,list] of Object.entries(cats)){
@@ -340,9 +371,15 @@ function renderExos(){
     for(const [k,e] of list){ const o=document.createElement("option"); o.value=k; o.textContent=e.name; g.appendChild(o); }
     sel.appendChild(g);
   }
+}
+function renderExos(){
   if(!EXOS[S.exo]) S.exo="squat";
-  sel.value=S.exo;
-  sel.onchange=()=>{ S.exo=sel.value; S.metric=EXOS[S.exo].metric; $("metric").value=S.metric; save(); };
+  for(const id of ["exoSel","qExo"]){
+    const sel=$(id); if(!sel.options.length) fillExos(sel);
+    sel.value=S.exo;
+    sel.onchange=()=>{ S.exo=sel.value; S.metric=EXOS[S.exo].metric; $("metric").value=S.metric; save(); };
+  }
+  $("qLoad").value=S.load||"";
 }
 function bindField(id, key, isCheck){
   const el = $(id);
@@ -870,8 +907,8 @@ function finishSet(mpp, origin){
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
   closeStage();
-  lastResult=res; renderResult(res); storeHistory(res);
-  if(S.sess && !S.sess.over){
+  lastResult=res; renderResult(res); $("resCard").hidden=false; storeHistory(res);
+  if(view==="sess" && S.sess && !S.sess.over){
     const k=S.sess.done.length+1, snap=JSON.parse(JSON.stringify(S.sess));
     addSetToSess(res);
     window.Cloud?.onSet({res, sess:snap, k, video});
@@ -1017,8 +1054,12 @@ function setStats(res){
   return {m, vals, best, last, first, loss:lossAt(vals, vals.length-1), avg:vals.reduce((p,q)=>p+q,0)/vals.length};
 }
 function renderResult(res){
-  $("resBadge").textContent = res.demo? "Exemple simulé" : (res.origin==="direct"?"Direct":"Vidéo");
-  $("resBadge").className = "badge"+(res.demo?" demo":"");
+  $("resBadge").textContent = res.origin==="direct"?"Direct": res.origin==="vidéo"?"Vidéo":"";
+  $("resBadge").hidden = !$("resBadge").textContent;
+  const fromHist=!!res.histId;
+  $("bResBack").hidden=!fromHist; $("bDel").hidden=!fromHist;
+  $("t-res").textContent = fromHist? "Série enregistrée" : "Résultats";
+  $("pathWrap").hidden = !res.pathImg;
   const exo=EXOS[res.exo]?.name||"";
   const d=new Date(res.date);
   $("resMeta").textContent = `${exo}${res.load? " · "+res.load+" kg":""} · ${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} ${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · vitesse ${METRIC_NAME[S.metric]}`
@@ -1110,8 +1151,7 @@ function addSetToSess(res){
 }
 function renderSess(){
   const ss=S.sess;
-  $("sessIdle").hidden=!!ss; $("sessRun").hidden=!ss; if(!ss) return;
-  $("sessForm").hidden=true;
+  $("sessRun").hidden=!ss; $("sessForm").hidden=!!ss; renderHome(); if(!ss) return;
   $("sessTitle").textContent=`${EXOS[ss.exo]?.name||""}${ss.load? " · "+ss.load+" kg":""}`;
   const k=ss.done.length;
   $("sessCount").textContent = ss.over? "Terminée" : `Série ${k+1} / ${ss.sets}`;
@@ -1133,8 +1173,7 @@ function renderSess(){
   $("sessLive").textContent=`Série ${k+1} en direct`;
   $("sessEnd").textContent= ss.over? "Fermer la séance" : "Terminer la séance";
 }
-$("bSess").onclick=()=>{ unlockVoice(); $("sessIdle").hidden=true; $("sessForm").hidden=false; $("setsN").value=S.lastSets||4; renderExos(); };
-$("sessCancel").onclick=()=>{ $("sessForm").hidden=true; $("sessIdle").hidden=false; };
+$("sessCancel").onclick=()=>go("home");
 const clampSets=v=>Math.max(1,Math.min(20,Math.round(pf(v)||1)));
 $("setsMinus").onclick=()=>{ $("setsN").value=clampSets($("setsN").value)-1||1; };
 $("setsPlus").onclick=()=>{ $("setsN").value=Math.min(20,clampSets($("setsN").value)+1); };
@@ -1154,9 +1193,8 @@ function startPlanExercise(plan, idx){
   if(e.vloss!=null && e.vloss!=="") S.vloss=String(e.vloss);
   $("load").value=S.load; $("vloss").value=S.vloss;
   S.sess={exo:S.exo, load:S.load, sets:Math.max(1,+e.sets||1), start:Date.now(), key:plan.key, vloss:S.vloss, done:[], over:false, plan:{...plan, idx}};
-  save(); renderSess();
+  save(); renderSess(); go("sess");
   say(`${EXOS[S.exo].name}, ${S.sess.sets} séries${S.load? " à "+S.load+" kilos":""}. Pose le téléphone et lance la série 1.`, true);
-  $("sessCard").scrollIntoView({behavior:"smooth",block:"start"});
 }
 window.startPlan = (plan)=>{ unlockVoice(); startPlanExercise({...plan, key: plan.key || ("p"+Date.now())}, 0); };
 $("sessNext").onclick=()=>{ const ss=S.sess; if(ss?.plan) startPlanExercise(ss.plan, ss.plan.idx+1); };
@@ -1165,86 +1203,99 @@ $("sLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.
 $("sessEnd").onclick=()=>{
   const ss=S.sess; if(!ss) return;
   if(!ss.over && ss.done.length){ const all=ss.done.map(d=>setSummary(d.reps)).filter(x=>x.n); if(all.length) say(`Séance terminée : ${ss.done.length} séries.`, true); }
-  S.sess=null; save(); renderSess();
+  S.sess=null; save(); renderSess(); go("home");
 };
 renderSess();
 
-/* ---------- Historique ---------- */
+/* ---------- Séries enregistrées ---------- */
+const r3=x=>+(+x).toFixed(3);
 function storeHistory(res){
   const st=setStats(res); if(!st) return;
-  S.history.unshift({date:res.date, exo:res.exo, load:res.load, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
+  // courbe de vitesse allégée (≤ 400 points) pour pouvoir revoir la série
+  const n=res.t.length, step=Math.max(1,Math.ceil(n/400)), t=[], v=[];
+  for(let i=0;i<n;i+=step){ t.push(+res.t[i].toFixed(2)); v.push(+res.v[i].toFixed(3)); }
+  S.history.unshift({id:"h"+res.date+Math.random().toString(36).slice(2,6), date:res.date, exo:res.exo, load:res.load, origin:res.origin,
+    sess: view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
+    reps:res.reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+r.t0.toFixed(2),t1:+r.t1.toFixed(2)})), t, v});
   S.history=S.history.slice(0,200); save(); renderHistory();
 }
+function fmtDate(ts){ const d=new Date(ts); return d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})+" · "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); }
 function renderHistory(){
+  S.history.forEach((h,i)=>{ if(!h.id) h.id="h"+h.date+"_"+i; });
+  const f=$("histFilter"), cur=f.value, used=[...new Set(S.history.map(h=>h.exo))];
+  f.length=1; used.forEach(k=>{ const o=document.createElement("option"); o.value=k; o.textContent=EXOS[k]?.name||k; f.appendChild(o); });
+  f.value=used.includes(cur)? cur : "";
+  $("histFilterWrap").hidden = used.length<2;
+  const list=S.history.filter(h=>!f.value || h.exo===f.value);
   const box=$("hist"); box.textContent=""; $("histEmpty").hidden = S.history.length>0;
-  S.history.slice(0,30).forEach(h=>{
-    const vals=h.reps.map(r=>r[S.metric]); const best=Math.max(...vals), last=vals[vals.length-1];
+  $("histCount").textContent = S.history.length? S.history.length+" série"+(S.history.length>1?"s":"") : "";
+  $("histCount").hidden = !S.history.length;
+  let day="";
+  list.forEach(h=>{
+    const d=new Date(h.date), dk=d.toDateString();
+    if(dk!==day){ day=dk; const t=document.createElement("div"); t.className="lbl hday"; t.textContent=d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}); box.appendChild(t); }
+    const vals=h.reps.map(r=>r[S.metric]); const best=Math.max(...vals);
     const b=document.createElement("button"); b.type="button"; b.className="hrow";
-    const d=new Date(h.date);
-    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} · ${h.reps.length} rép.</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round(lossAt(vals, vals.length-1))} %</span></span>`;
-    b.onclick=()=>{ say(`${EXOS[h.exo]?.name}. ${h.reps.length} répétitions. Meilleure ${spokenNum(best)}.`, true); };
+    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · ${h.reps.length} rép.${h.sess? " · "+h.sess:""}</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round(lossAt(vals, vals.length-1))} %</span></span>`;
+    b.onclick=()=>openHist(h.id);
     box.appendChild(b);
   });
+  renderHome();
 }
-renderHistory();
-
-/* ---------- Démo : série de squat simulée (6 rép., 55 cm, vitesses connues) ---------- */
-const DEMO_TRUE=[0.78,0.74,0.70,0.64,0.57,0.49];
-function demoScene(){
-  const W=640,H=360, PXM=200, fps=30, ROM=0.55;
-  // trajectoire
-  const seg=[]; let tt=0.6; const keys=[];
-  for(const mcv of DEMO_TRUE){ keys.push({t:tt,type:"down",d:1.1}); tt+=1.1; keys.push({t:tt,type:"hold",d:0.15}); tt+=0.15; const T=ROM/mcv; keys.push({t:tt,type:"up",d:T}); tt+=T; keys.push({t:tt,type:"top",d:1.0}); tt+=1.0; }
-  const total=tt+0.4;
-  function pos(t){ // hauteur en m (0 = haut)
-    for(const k of keys){ if(t>=k.t && t<k.t+k.d){ const u=(t-k.t)/k.d;
-      if(k.type==="down") return -ROM*(1-Math.cos(Math.PI*u))/2;
-      if(k.type==="hold") return -ROM;
-      if(k.type==="up") return -ROM + ROM*(1-Math.cos(Math.PI*u))/2;
-      return 0; } }
-    return 0;
-  }
-  const c=document.createElement("canvas"); c.width=W; c.height=H; const g=c.getContext("2d",{willReadFrequently:true});
-  const bg=document.createElement("canvas"); bg.width=W; bg.height=H; const b=bg.getContext("2d");
-  const gr=b.createLinearGradient(0,0,0,H); gr.addColorStop(0,"#5d6267"); gr.addColorStop(1,"#3a3d40"); b.fillStyle=gr; b.fillRect(0,0,W,H);
-  b.fillStyle="#2b2d2f"; b.fillRect(0,H-40,W,40);
-  for(let i=0;i<500;i++){ b.fillStyle=`rgba(255,255,255,${Math.random()*0.06})`; b.fillRect(Math.random()*W,Math.random()*H,2,2); }
-  b.fillStyle="#8a8f95"; b.fillRect(40,30,60,260); b.fillRect(540,30,60,260);
-  const x0=320, ytop=120;
-  function frame(t){
-    const p=pos(t), y=ytop - p*PXM + (Math.random()-.5)*0.8, x=x0 + Math.sin(t*2.1)*4 + (Math.random()-.5)*0.8;
-    g.drawImage(bg,0,0);
-    g.fillStyle="#1f2933"; g.fillRect(x-70,y-20,90,H-40-(y-20)); // silhouette
-    g.fillStyle="#c9a27e"; g.beginPath(); g.arc(x-25,y-50,22,0,7); g.fill();
-    g.fillStyle="#bfc4c9"; g.fillRect(x-120,y-4,240,8); // barre
-    g.fillStyle="#d0281e"; g.beginPath(); g.arc(x,y,45,0,7); g.fill(); // disque rouge 45 cm
-    g.fillStyle="#d8dde2"; g.beginPath(); g.arc(x,y,9,0,7); g.fill(); // manchon
-    return g.getImageData(0,0,W,H);
-  }
-  return {W,H,fps,total,frame,x0,ytop};
-}
-async function runDemo(visible){
-  const sc=demoScene();
-  const first=sc.frame(0);
-  const tr=new Tracker(first, sc.x0+30, sc.ytop+5);
-  const mpp=(0.45)/tr.cal;
-  const smp=[]; const N=Math.floor(sc.total*sc.fps);
-  if(visible){ closeStage(); openStage(); cv.width=sc.W; cv.height=sc.H; $("scrubWrap").hidden=true; $("calRow").hidden=true; $("bGo").hidden=true; setHint("Démo : suivi d'un disque rouge sur une série de squat simulée."); tracker=tr; running=true; $("prog").hidden=false; }
-  for(let i=0;i<N;i++){
-    const t=i/sc.fps, img=sc.frame(t), r=tr.update(img); smp.push({t,x:r.x,y:r.y,ok:r.ok,k:r.k});
-    if(visible){ ctx.putImageData(img,0,0); samples=smp; drawOverlay(smp); $("prog").value=i/N; if(i%2===0) await new Promise(r=>setTimeout(r,33)); }
-    else if(i%60===0) await new Promise(r=>setTimeout(r,0));
-  }
-  const res=analyze(smp, mpp, "squat", false);
-  Object.assign(res,{mpp, exo:"squat", load:"", date:Date.now(), origin:"demo", demo:true, lost:0, pathImg:first});
-  if(visible){ running=false; $("calRow").hidden=false; $("bGo").hidden=false; closeStage(); }
+$("histFilter").onchange=renderHistory;
+let histOpen=null;
+function openHist(id){
+  const h=S.history.find(x=>x.id===id); if(!h) return;
+  histOpen=id;
+  const res={histId:id, date:h.date, exo:h.exo, load:h.load, origin:h.origin||"", lost:0, t:h.t||[], v:h.v||[], reps:h.reps.map(r=>({...r, t0:r.t0??0, t1:r.t1??0})), P:[]};
   lastResult=res; renderResult(res);
-  window.__demo = {true:DEMO_TRUE, mcv:res.reps.map(r=>+r.mcv.toFixed(3)), peak:res.reps.map(r=>+r.peak.toFixed(3)), rom:res.reps.map(r=>+r.rom.toFixed(3)), mpp, bh:tr.bh, mode:tr.mode};
-  return res;
+  $("histCard").classList.add("off"); $("resCard").hidden=false;
+  scrollTo({top:0});
 }
-$("bDemo").onclick=()=>runDemo(true);
+function closeHist(){ histOpen=null; $("resCard").hidden=true; $("histCard").classList.toggle("off", view!=="hist"); }
+$("bResBack").onclick=closeHist;
+let delArm=0;
+$("bDel").onclick=()=>{
+  const b=$("bDel");
+  if(Date.now()-delArm>4000){ delArm=Date.now(); b.textContent="Toucher encore pour confirmer"; setTimeout(()=>{ if(b.textContent!=="Supprimer cette série") b.textContent="Supprimer cette série"; },4000); return; }
+  delArm=0; b.textContent="Supprimer cette série";
+  S.history=S.history.filter(x=>x.id!==histOpen); save(); renderHistory(); closeHist();
+};
+
+/* ---------- Navigation entre les pages ---------- */
+let view="home";
+const TITLES={sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées"};
+function go(v){
+  if(running || src) closeStage();
+  view=v;
+  document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
+  $("viewTitle").textContent=TITLES[v]||"";
+  $("resCard").hidden=true; closeHist();
+  if(v==="sess"){ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); }
+  if(v==="quick") renderExos();
+  if(v==="hist") renderHistory();
+  renderHome();
+  scrollTo({top:0});
+  try{ if(history.state?.v!==v) history[v==="home"?"replaceState":"pushState"]({v},""); }catch(e){}
+}
+addEventListener("popstate", e=>{ go(e.state?.v||"home"); });
+function renderHome(){
+  const ss=S.sess;
+  $("tSessT").textContent = ss? "Reprendre la séance" : "Commencer une séance";
+  $("tSessS").textContent = ss? `${EXOS[ss.exo]?.name||""} · série ${Math.min(ss.done.length+1,ss.sets)} / ${ss.sets}${ss.over?" · terminée":""}` : "Exercice, séries, charge et perte de vitesse";
+  const n=S.history.length;
+  $("tHistS").textContent = n? `${n} série${n>1?"s":""} · revoir ou supprimer` : "Aucune série pour l'instant";
+}
+$("tSess").onclick=()=>go("sess");
+$("tQuick").onclick=()=>go("quick");
+$("tHist").onclick=()=>go("hist");
+$("tSet").onclick=()=>go("settings");
+$("bHome").onclick=()=>{ if(history.state?.v && history.state.v!=="home" && history.length>1) history.back(); else go("home"); };
+$("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
+renderHistory();
+go("home");
+
 const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("change",()=>{ if(lastResult) renderResult(lastResult); });
-runDemo(false);
 </script>
 
 <script src="cloud.js?v=6"></script>
