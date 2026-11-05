@@ -124,6 +124,9 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
 .wk{font-family:var(--display);font-size:18px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:6px}
 .sess{border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
 .sess h3{margin:0;font-size:15px}
+.fdot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--muted);vertical-align:middle}
+.fdot.ok{background:var(--ok)}.fdot.warn{background:var(--warn)}.fdot.bad{background:var(--bad)}
+.fdots{display:inline-flex;gap:4px}
 .tbl{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
 .tbl th,.tbl td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 .tbl th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
@@ -147,6 +150,7 @@ video{width:100%;border-radius:10px;background:#000}
 const EXOS = {
   squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
   fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
+  jsquat:{name:"Squat sauté",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
   hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv"},
   rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true},
   dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true},
@@ -158,6 +162,6 @@ const EXOS = {
   sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"peak",floor:true}
 };
 </script>
-<script src="coach.js?v=4"></script>
+<script src="coach.js?v=5"></script>
 </body>
 </html>

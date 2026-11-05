@@ -156,6 +156,14 @@ header{align-items:center;justify-content:flex-start;flex-wrap:nowrap}
 button.danger{color:var(--bad);border-color:var(--bad)}
 .hrow .sub{font-size:12px}
 .hday{margin-top:8px}
+.tile.form{border-color:var(--ok)}
+.verdict{border-radius:14px;padding:16px;color:#fff;display:flex;flex-direction:column;gap:4px}
+.verdict.ok{background:var(--ok)} .verdict.warn{background:var(--warn)} .verdict.bad{background:var(--bad)} .verdict.build{background:var(--sunk);color:var(--fg)}
+.verdict b{font-family:var(--display);font-size:28px;text-transform:uppercase;line-height:1.1}
+.verdict .vv{font-size:15px;font-variant-numeric:tabular-nums}
+.verdict .vc{font-size:14px;opacity:.95}
+.fdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;background:var(--muted)}
+.fdot.ok{background:var(--ok)} .fdot.warn{background:var(--warn)} .fdot.bad{background:var(--bad)}
 .ptab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
 .ptab th,.ptab td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
 .ptab th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
@@ -192,13 +200,14 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div><h1>Vitesse de barre</h1>
     <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
-  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile">
+  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form">
     <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
     <h1 id="viewTitle"></h1>
   </nav>
 
   <div class="tiles" data-v="home">
     <button type="button" class="tile main" id="tSess"><b id="tSessT">Commencer une séance</b><span id="tSessS">Exercice, séries, charge et perte de vitesse</span></button>
+    <button type="button" class="tile form" id="tForm"><b>Forme du jour</b><span id="tFormS">Test de 3 squats sautés</span></button>
     <button type="button" class="tile" id="tQuick"><b>Mesure rapide</b><span>Une série isolée, en direct ou en vidéo</span></button>
     <button type="button" class="tile" id="tHist"><b>Séries enregistrées</b><span id="tHistS">Revoir ou supprimer vos séries</span></button>
     <button type="button" class="tile" id="tProf"><b>Profil charge-vitesse</b><span>Estimer ton 1RM</span></button>
@@ -206,6 +215,27 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
   </div>
 
   <section class="card" id="cloudCard" data-v="home" hidden aria-labelledby="t-cloud"></section>
+
+  <section class="card" id="formCard" data-v="form" aria-labelledby="t-form">
+    <h2 id="t-form" hidden>Forme du jour</h2>
+    <div class="verdict" id="fmVerdict" hidden></div>
+    <div class="grid2">
+      <label class="field"><span class="lbl">Charge de référence (kg)</span><input id="fmLoad" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 20"></label>
+    </div>
+    <p class="note" style="margin:0">Après l'échauffement : <b>3 squats sautés</b>, le plus vite et le plus haut possible, avec une courte pause entre chaque. Gardez toujours la même charge : la comparaison se fait avec vos tests à cette charge.</p>
+    <div class="actions">
+      <button id="fmLive" type="button" class="primary big">Faire le test en direct</button>
+      <label class="btn">Filmer le test<input id="fmCam" type="file" accept="video/*" capture="environment"></label>
+      <label class="btn">Photothèque<input id="fmLib" type="file" accept="video/*"></label>
+      <button type="button" class="camSel">Caméra : arrière</button>
+    </div>
+    <div id="fmChartWrap" hidden>
+      <div class="lbl" style="margin-bottom:6px">Évolution (meilleure vitesse du test, m/s)</div>
+      <canvas class="chart" id="chartF" width="680" height="300"></canvas>
+      <p class="note" style="margin:6px 0 0">Bande verte : votre normale (moyenne de vos 10 derniers tests) jusqu'à −5 %. Orange : −5 à −10 %. En dessous : rouge.</p>
+    </div>
+    <div class="hist" id="fmList"></div>
+  </section>
 
   <section class="card" id="sessCard" data-v="sess" aria-labelledby="t-sess">
     <div id="sessForm" class="col" hidden>
@@ -263,7 +293,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </div>
   </section>
 
-  <section class="card" id="resCard" data-v="sess quick hist" hidden aria-labelledby="t-res">
+  <section class="card" id="resCard" data-v="sess quick hist form" hidden aria-labelledby="t-res">
     <button type="button" id="bResBack" class="linkbtn" hidden>‹ Toutes les séries</button>
     <div class="row" style="justify-content:space-between">
       <h2 id="t-res" style="flex:0 1 auto">Résultats</h2>
@@ -374,6 +404,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 const EXOS = {
   squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
   fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
+  jsquat:{name:"Squat sauté",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
   hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv",mvt:0.25},
   rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true,mvt:0.2},
   dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true,mvt:0.15},
@@ -815,7 +846,7 @@ async function attachLive(stream){
 function syncCam(){
   const front = S.facing==="user";
   document.querySelectorAll(".camSel").forEach(b=>{ b.textContent = front ? "Caméra : avant (selfie)" : "Caméra : arrière"; b.setAttribute("aria-pressed", String(front)); });
-  ["sCam","fCam"].forEach(id=>{ const el=$(id); if(el) el.setAttribute("capture", front ? "user" : "environment"); });
+  ["sCam","fCam","fmCam"].forEach(id=>{ const el=$(id); if(el) el.setAttribute("capture", front ? "user" : "environment"); });
 }
 document.querySelectorAll(".camSel").forEach(b=>b.onclick=()=>{ S.facing = S.facing==="user" ? "environment" : "user"; save(); syncCam(); });
 syncCam();
@@ -1048,6 +1079,7 @@ function finishSet(mpp, origin){
   res.pathImg = setupImg; res.samplesPx = samples;
   closeStage();
   lastResult=res; renderResult(res); $("resCard").hidden=false; storeHistory(res);
+  if(view==="form"){ formDone(res, video); return; }
   if(view==="sess" && S.sess && !S.sess.over){
     const k=S.sess.done.length+1, snap=JSON.parse(JSON.stringify(S.sess));
     addSetToSess(res);
@@ -1357,7 +1389,7 @@ function storeHistory(res){
   const n=res.t.length, step=Math.max(1,Math.ceil(n/400)), t=[], v=[];
   for(let i=0;i<n;i+=step){ t.push(+res.t[i].toFixed(2)); v.push(+res.v[i].toFixed(3)); }
   S.history.unshift({id:"h"+res.date+Math.random().toString(36).slice(2,6), date:res.date, exo:res.exo, load:res.load, origin:res.origin,
-    sess: view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
+    sess: view==="form" ? "Forme du jour" : view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
     reps:res.reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+r.t0.toFixed(2),t1:+r.t1.toFixed(2)})), t, v});
   S.history=S.history.slice(0,200); save(); renderHistory();
 }
@@ -1490,11 +1522,100 @@ $("pExo").onchange=e=>{ S.prof.exo=e.target.value; save(); renderProfile(); };
 $("pPeriod").onchange=e=>{ S.prof.days=e.target.value; save(); renderProfile(); };
 $("pMvt").addEventListener("change", e=>{ const v=pf(e.target.value); if(v>0) S.prof.mvt[S.prof.exo]=v; else delete S.prof.mvt[S.prof.exo]; save(); renderProfile(); });
 
+/* ---------- Forme du jour : 3 squats sautés à charge fixe, comparés à la normale du joueur ---------- */
+const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
+const FORM_TIP={ok:"Séance normale.", warn:"Garder la séance, réduire un peu le volume.", bad:"Alléger nettement la séance ou l'adapter.", build:""};
+S.form ||= {load:"", tests:[]};
+function formVerdict(prev, v){
+  // prev : tests précédents à la même charge (hors aujourd'hui), du plus ancien au plus récent
+  const base=prev.slice(-10).map(t=>t.v);
+  if(base.length<3) return {level:"build", n:base.length};
+  const m=base.reduce((a,b)=>a+b,0)/base.length, sd=Math.sqrt(base.reduce((a,b)=>a+(b-m)**2,0)/(base.length-1));
+  const diff=(v-m)/m*100;
+  return {level: diff>=-5? "ok" : diff>=-10? "warn" : "bad", m, diff, cv: sd/m*100, n:base.length};
+}
+function formPrev(load, beforeDate){
+  const day=new Date(beforeDate).toDateString();
+  return S.form.tests.filter(t=>pf(t.load)===pf(load) && t.date<beforeDate && new Date(t.date).toDateString()!==day);
+}
+let formStash=null;
+function formEnter(){
+  if(!formStash) formStash={exo:S.exo, load:S.load};
+  S.exo="jsquat"; S.load=S.form.load||"";
+  $("fmLoad").value=S.form.load||"";
+  renderForm();
+}
+function formLeave(){ if(formStash){ S.exo=formStash.exo; S.load=formStash.load; formStash=null; save(); } }
+function showVerdict(t){
+  const el=$("fmVerdict"); if(!t){ el.hidden=true; return; }
+  el.hidden=false; el.className="verdict "+t.level;
+  const d=new Date(t.date);
+  el.innerHTML = t.level==="build"
+    ? `<b>Référence en cours</b><span class="vv">${num(t.v)} m/s · test ${t.n+1} sur 3</span><span class="vc">Encore ${3-t.n-1>0? (3-t.n-1)+" test"+(3-t.n-1>1?"s":"") : "aucun test"} avant le premier verdict. Faites le test dans les mêmes conditions à chaque fois.</span>`
+    : `<b>${FORM_LBL[t.level]}</b><span class="vv">${num(t.v)} m/s · normale ${num(t.m)} m/s · <b style="font-size:inherit">${t.diff>=0?"+":"−"}${Math.abs(t.diff).toFixed(1).replace(".",",")} %</b></span><span class="vc">${FORM_TIP[t.level]} · ${d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</span>`;
+}
+function renderForm(){
+  const L=S.form.load, tests=S.form.tests.filter(t=>pf(t.load)===pf(L));
+  const today=tests.filter(t=>new Date(t.date).toDateString()===new Date().toDateString()).pop();
+  showVerdict(today||null);
+  $("fmChartWrap").hidden = tests.length<2;
+  if(tests.length>=2) drawForm(tests.slice(-20));
+  const box=$("fmList"); box.textContent="";
+  [...S.form.tests].reverse().slice(0,10).forEach((t,i)=>{
+    const r=document.createElement("div"); r.className="hrow"; r.style.cursor="default";
+    const d=new Date(t.date);
+    r.innerHTML=`<span><span class="fdot ${t.level}"></span><b>${FORM_LBL[t.level]}</b><br><span class="sub">${d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${t.load||"?"} kg</span></span><span style="text-align:right"><b>${num(t.v)}</b> m/s<br><span class="sub">${t.level==="build"?"référence":(t.diff>=0?"+":"−")+Math.abs(Math.round(t.diff))+" %"}</span></span>`;
+    if(i===0){ const del=document.createElement("button"); del.type="button"; del.className="linkbtn"; del.style.gridColumn="1/-1"; del.textContent="Supprimer ce test";
+      del.onclick=()=>{ if(del.dataset.arm){ S.form.tests.pop(); save(); renderForm(); renderHome(); } else { del.dataset.arm=1; del.textContent="Toucher encore pour confirmer"; } };
+      r.appendChild(del); }
+    box.appendChild(r);
+  });
+}
+function drawForm(tests){
+  const c=$("chartF"), g=c.getContext("2d"), W=c.width, H=c.height; g.clearRect(0,0,W,H);
+  const L=58,R=14,T=16,B=40, n=tests.length;
+  const vs=tests.map(t=>t.v), ms=tests.map(t=>t.m).filter(x=>x>0);
+  let vmin=Math.min(...vs, ...ms.map(m=>m*0.88)), vmax=Math.max(...vs, ...ms);
+  vmin=Math.floor(vmin*20)/20-0.05; vmax=Math.ceil(vmax*20)/20+0.05;
+  const X=i=>L+(n<2?0.5:i/(n-1))*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
+  g.font="22px Figtree, sans-serif"; g.textAlign="right"; g.textBaseline="middle";
+  const step=(vmax-vmin)>0.6?0.2:0.1;
+  for(let v=Math.ceil(vmin/step)*step; v<=vmax+1e-9; v+=step){ g.strokeStyle=css("--line"); g.lineWidth=1; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); g.fillStyle=css("--muted"); g.fillText(num(v,1),L-8,Y(v)); }
+  // bandes : normale (vert) puis −5/−10 % (orange)
+  const band=(k0,k1,col)=>{ g.fillStyle=col; g.globalAlpha=0.16; g.beginPath(); let first=true;
+    tests.forEach((t,i)=>{ if(!(t.m>0)) return; const y=Y(t.m*k0); first? g.moveTo(X(i),y) : g.lineTo(X(i),y); first=false; });
+    for(let i=n-1;i>=0;i--){ const t=tests[i]; if(t.m>0) g.lineTo(X(i),Y(t.m*k1)); }
+    g.closePath(); g.fill(); g.globalAlpha=1; };
+  if(ms.length){ band(1.0,0.95,css("--ok")); band(0.95,0.90,css("--warn")); }
+  g.strokeStyle=css("--muted"); g.lineWidth=2; g.beginPath(); tests.forEach((t,i)=>i?g.lineTo(X(i),Y(t.v)):g.moveTo(X(i),Y(t.v))); g.stroke();
+  const colOf=l=> l==="ok"?css("--ok"): l==="warn"?css("--warn"): l==="bad"?css("--bad"): css("--muted");
+  tests.forEach((t,i)=>{ g.fillStyle=colOf(t.level); g.strokeStyle=css("--surface"); g.lineWidth=3; g.beginPath(); g.arc(X(i),Y(t.v),8,0,7); g.fill(); g.stroke(); });
+  g.textAlign="center"; g.textBaseline="top"; g.fillStyle=css("--muted");
+  const lab=i=>new Date(tests[i].date).toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+  g.fillText(lab(0),X(0)+30,H-B+10); if(n>1) g.fillText(lab(n-1),X(n-1)-30,H-B+10);
+}
+function formDone(res, video){
+  const vals=res.reps.map(r=>r.mcv);
+  if(!vals.length){ say("Aucune répétition détectée. Recommence le test.", true); $("resCard").scrollIntoView({behavior:"smooth",block:"start"}); return; }
+  const v=Math.max(...vals.slice(0,4));    // meilleure des 3 premières (4 si une de trop)
+  const vd=formVerdict(formPrev(S.form.load, res.date), v);
+  const t={date:res.date, load:S.form.load, v:+v.toFixed(3), level:vd.level, m: vd.m? +vd.m.toFixed(3):null, diff: vd.diff!=null? +vd.diff.toFixed(1):null, n:vd.n};
+  S.form.tests.push(t); S.form.tests=S.form.tests.slice(-300); save();
+  renderForm(); renderHome(); scrollTo({top:0, behavior:"smooth"});
+  say(vd.level==="build" ? `Test enregistré : ${spokenNum(v)}. Référence en cours.` : `${FORM_LBL[vd.level]}. ${spokenNum(v)}, ${Math.abs(Math.round(vd.diff))} pour cent ${vd.diff>=0?"au-dessus":"en dessous"} de ta normale.`, true);
+  window.Cloud?.onSet({res, sess:{exo:"jsquat", load:S.form.load, key:"forme-"+new Date(res.date).toISOString().slice(0,10), start:res.date}, k:1, video});
+}
+$("fmLoad").addEventListener("input", e=>{ S.form.load=e.target.value; S.load=e.target.value; save(); renderForm(); });
+$("fmLive").onclick=()=>{ if(!(pf(S.form.load)>=0) || S.form.load===""){ $("fmLoad").focus(); say("Indique d'abord la charge de référence.", true); return; } $("bLive").click(); };
+$("fmCam").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
+$("fmLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
+
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
-const TITLES={sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
+const TITLES={form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
   if(running || src) closeStage();
+  if(view==="form" && v!=="form") formLeave();
   view=v;
   document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
   $("viewTitle").textContent=TITLES[v]||"";
@@ -1503,6 +1624,7 @@ function go(v){
   if(v==="quick") renderExos();
   if(v==="hist") renderHistory();
   if(v==="profile") renderProfile();
+  if(v==="form") formEnter();
   renderHome();
   scrollTo({top:0});
   try{ if(history.state?.v!==v) history[v==="home"?"replaceState":"pushState"]({v},""); }catch(e){}
@@ -1512,6 +1634,8 @@ function renderHome(){
   const ss=S.sess;
   $("tSessT").textContent = ss? "Reprendre la séance" : "Commencer une séance";
   $("tSessS").textContent = ss? `${EXOS[ss.exo]?.name||""} · série ${Math.min(ss.done.length+1,ss.sets)} / ${ss.sets}${ss.over?" · terminée":""}` : "Exercice, séries, charge et perte de vitesse";
+  const ft=(S.form?.tests||[]).filter(t=>new Date(t.date).toDateString()===new Date().toDateString()).pop();
+  $("tFormS").innerHTML = ft? `<span class="fdot ${ft.level}"></span>Fait aujourd'hui · ${FORM_LBL[ft.level]}` : "Test de 3 squats sautés";
   const n=S.history.length;
   $("tHistS").textContent = n? `${n} série${n>1?"s":""} · revoir ou supprimer` : "Aucune série pour l'instant";
 }
@@ -1520,6 +1644,7 @@ $("tQuick").onclick=()=>go("quick");
 $("tHist").onclick=()=>go("hist");
 $("tSet").onclick=()=>go("settings");
 $("tProf").onclick=()=>go("profile");
+$("tForm").onclick=()=>go("form");
 $("bHome").onclick=()=>{ if(history.state?.v && history.state.v!=="home" && history.length>1) history.back(); else go("home"); };
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
 $("qLoss").addEventListener("input", e=>{ S.vloss=e.target.value; $("vloss").value=S.vloss; save(); });

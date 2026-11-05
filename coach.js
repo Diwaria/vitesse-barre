@@ -9,7 +9,7 @@
   const exName = k => EXOS[k]?.name || k;
   if(!cfg.url || !cfg.key || !window.supabase){ main.innerHTML = `<p class="note">L'espace coach n'est pas encore relié au serveur.</p>`; return; }
   const sb = window.supabase.createClient(cfg.url, cfg.key);
-  let user=null, profile=null, team=null, players=[], sets=[], plans=[], tab="suivi", filterPlayer="", weeks=6;
+  let user=null, profile=null, team=null, players=[], sets=[], formes=[], plans=[], tab="forme", filterPlayer="", weeks=6;
 
   function exOptions(sel){
     const cats={}; for(const [k,e] of Object.entries(EXOS)) (cats[e.cat] ||= []).push([k,e]);
@@ -29,23 +29,59 @@
 
   async function loadData(){
     const since=new Date(Date.now()-weeks*7*864e5).toISOString();
-    const [p,s,pl]=await Promise.all([
+    const [p,s,pl,fm]=await Promise.all([
       sb.from("profiles").select("id,name,role").eq("team_id",team.id).order("name"),
       sb.from("sets").select("*").eq("team_id",team.id).gte("performed_at",since).order("performed_at",{ascending:false}).limit(2000),
-      sb.from("planned_sessions").select("*").eq("team_id",team.id).gte("day",new Date(Date.now()-21*864e5).toISOString().slice(0,10)).order("day")
+      sb.from("planned_sessions").select("*").eq("team_id",team.id).gte("day",new Date(Date.now()-21*864e5).toISOString().slice(0,10)).order("day"),
+      sb.from("sets").select("player_id,load_kg,reps,performed_at,session_key").eq("team_id",team.id).like("session_key","forme-%").gte("performed_at",new Date(Date.now()-150*864e5).toISOString()).order("performed_at").limit(3000)
     ]);
-    players=(p.data||[]).filter(x=>x.role==="player"); sets=s.data||[]; plans=pl.data||[];
+    players=(p.data||[]).filter(x=>x.role==="player"); plans=pl.data||[];
+    sets=(s.data||[]).filter(x=>!String(x.session_key).startsWith("forme-"));
+    formes=fm.data||[];
   }
 
   function render(){
-    const tabs=[["suivi","Suivi"],["prog","Programmer"],["joueurs",`Joueurs (${players.length})`]];
+    const tabs=[["forme","Forme du jour"],["suivi","Suivi"],["prog","Programmer"],["joueurs",`Joueurs (${players.length})`]];
     main.innerHTML=`<div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="flex:0 1 auto">${esc(team.name)}</h2>
       <button type="button" class="small" id="cOut" style="flex:0 0 auto">Se déconnecter</button></div>
       <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button type="button" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}</button>`).join("")}</div>
       <div id="tabBody" class="col"></div>`;
     main.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); });
     $("cOut").onclick=()=>sb.auth.signOut();
-    if(tab==="suivi") renderSuivi(); else if(tab==="prog") renderProg(); else renderPlayers();
+    if(tab==="forme") renderForme(); else if(tab==="suivi") renderSuivi(); else if(tab==="prog") renderProg(); else renderPlayers();
+  }
+
+  /* ---------- Forme du jour (même calcul que dans l'app joueur) ---------- */
+  const FL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
+  function formeTests(pid){
+    // un test par jour (le dernier), meilleure vitesse des 4 premières répétitions
+    const byDay=new Map();
+    for(const r of formes.filter(f=>f.player_id===pid)){
+      const reps=(r.reps||[]).slice(0,4).map(x=>x.mcv).filter(x=>x>0); if(!reps.length) continue;
+      const t=new Date(r.performed_at);
+      byDay.set(t.toDateString(), {date:t.getTime(), load:r.load_kg, v:Math.max(...reps)});
+    }
+    const list=[...byDay.values()].sort((a,b)=>a.date-b.date);
+    list.forEach((t,i)=>{
+      const base=list.slice(0,i).filter(x=>x.load===t.load).slice(-10).map(x=>x.v);
+      if(base.length<3){ t.level="build"; return; }
+      const m=base.reduce((a,b)=>a+b,0)/base.length; t.m=m; t.diff=(t.v-m)/m*100;
+      t.level= t.diff>=-5? "ok" : t.diff>=-10? "warn" : "bad";
+    });
+    return list;
+  }
+  function renderForme(){
+    const body=$("tabBody"), today=new Date().toDateString();
+    const rows=players.map(p=>{ const ts=formeTests(p.id), last=ts[ts.length-1]; return {p, ts, last, isToday: last && new Date(last.date).toDateString()===today}; });
+    const order={bad:0,warn:1,ok:2,build:3};
+    rows.sort((a,b)=> (b.isToday-a.isToday) || ((order[a.last?.level]??9)-(order[b.last?.level]??9)) );
+    const nDone=rows.filter(r=>r.isToday).length, cnt=l=>rows.filter(r=>r.isToday&&r.last.level===l).length;
+    body.innerHTML=`<p class="note">Aujourd'hui : ${nDone} joueur(s) testé(s) sur ${players.length} · <span class="fdot ok"></span> ${cnt("ok")} &nbsp;<span class="fdot warn"></span> ${cnt("warn")} &nbsp;<span class="fdot bad"></span> ${cnt("bad")}</p>
+      <p class="note">Test : 3 squats sautés à charge fixe après l'échauffement. Vert : normale jusqu'à −5 % ; orange : −5 à −10 % ; rouge : au-delà de −10 % (normale = moyenne des 10 derniers tests à la même charge).</p>
+      <div class="tblwrap"><table class="tbl"><thead><tr><th>Joueur</th><th>Dernier test</th><th>État</th><th>Vitesse</th><th>Normale</th><th>Écart</th><th>7 derniers</th></tr></thead><tbody>${
+      rows.map(({p,ts,last,isToday})=>`<tr><td><b>${esc(p.name||"Sans nom")}</b></td>${ last ? `<td>${isToday?"<b>Aujourd'hui</b>":fmtDay(last.date)}</td><td><span class="fdot ${last.level}"></span> ${FL[last.level]}</td><td>${n2(last.v)} m/s</td><td>${last.m? n2(last.m):"–"}</td><td>${last.diff!=null? (last.diff>=0?"+":"−")+Math.abs(last.diff).toFixed(1).replace(".",",")+" %":"–"}</td><td><span class="fdots">${ts.slice(-7).map(t=>`<span class="fdot ${t.level}" title="${fmtDay(t.date)} : ${n2(t.v)} m/s"></span>`).join("")}</span></td>`
+        : `<td colspan="6" style="color:var(--muted)">aucun test</td>`}</tr>`).join("") || `<tr><td colspan="7">Aucun joueur pour l'instant.</td></tr>`
+      }</tbody></table></div>`;
   }
 
   /* ---------- Suivi ---------- */
