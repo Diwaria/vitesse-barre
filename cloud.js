@@ -4,7 +4,16 @@
   const cfg = window.VB_CONFIG || {};
   const card = document.getElementById("cloudCard");
   if(!cfg.url || !cfg.key){ return; }
-  if(!window.supabase){ if(card){ card.hidden=false; card.innerHTML='<h2>Mon compte</h2><p class="note">Connexion au serveur impossible pour le moment. Vérifie ta connexion internet puis recharge la page.</p>'; } return; }
+  const G=id=>document.getElementById(id);
+  if(!window.supabase){
+    // serveur injoignable : on prévient sur la page d'accueil et on laisse utiliser l'app sans compte
+    if(document.documentElement.classList.contains("gated")){
+      G("gForm").hidden=true; document.querySelector("#gate .glinks").hidden=true; G("gOff").hidden=false;
+      G("gMsg").textContent="Connexion au serveur impossible. Vérifie ta connexion internet puis recharge la page."; G("gMsg").className="gmsg err";
+      G("gOff").onclick=()=>document.documentElement.classList.remove("gated");
+    }
+    return;
+  }
   const sb = window.supabase.createClient(cfg.url, cfg.key);
   window.SB = sb;
   const $ = id => document.getElementById(id);
@@ -70,30 +79,54 @@
 
   /* ---------- Écrans ---------- */
   function show(html){ card.hidden=false; card.innerHTML=html; }
-  function loginView(msg){
-    show(`<h2 id="t-cloud">Mon compte</h2>
-      <p class="note">Connecte-toi pour recevoir les séances de ton coach et lui envoyer tes séries.</p>
-      <div class="grid2">
-        <label class="field" id="fName" hidden><span class="lbl">Prénom et nom</span><input id="cName" autocomplete="name"></label>
-        <label class="field"><span class="lbl">E-mail</span><input id="cMail" type="email" autocomplete="email" inputmode="email"></label>
-        <label class="field"><span class="lbl">Mot de passe</span><input id="cPass" type="password" autocomplete="current-password"></label>
-      </div>
-      <div class="row"><button type="button" class="primary" id="cLogin">Se connecter</button><button type="button" id="cSignup">Créer un compte</button></div>
-      <p class="note" id="cMsg">${esc(msg||"")}</p>`);
-    let signup=false;
-    $("cSignup").onclick=async()=>{
-      if(!signup){ signup=true; $("fName").hidden=false; $("cSignup").classList.add("primary"); $("cLogin").classList.remove("primary"); $("cMsg").textContent="Renseigne ton nom, ton e-mail et un mot de passe (6 caractères minimum), puis appuie à nouveau sur Créer un compte."; return; }
-      const name=$("cName").value.trim(), email=$("cMail").value.trim(), password=$("cPass").value;
-      if(!name||!email||password.length<6){ $("cMsg").textContent="Il manque le nom, l'e-mail ou un mot de passe d'au moins 6 caractères."; return; }
-      const {data,error}=await sb.auth.signUp({email,password,options:{data:{name}, emailRedirectTo: location.href.split("#")[0]}});
-      if(error){ $("cMsg").textContent="Inscription impossible : "+error.message; return; }
-      if(!data.session){ $("cMsg").textContent="Compte créé. Ouvre l'e-mail de confirmation reçu, puis reviens te connecter ici."; return; }
-    };
-    $("cLogin").onclick=async()=>{
-      const {error}=await sb.auth.signInWithPassword({email:$("cMail").value.trim(), password:$("cPass").value});
-      if(error) $("cMsg").textContent = /confirm/i.test(error.message) ? "Confirme d'abord ton adresse avec l'e-mail reçu." : "E-mail ou mot de passe incorrect.";
-    };
+  /* ---------- Page d'accueil : connexion ---------- */
+  let gMode="login";   // login | signup | forgot | newpass
+  function gMsg(t,err){ G("gMsg").textContent=t||""; G("gMsg").className="gmsg"+(err?" err":""); }
+  function gSet(m){
+    gMode=m;
+    G("gNameF").hidden = m!=="signup";
+    G("gMailF").hidden = m==="newpass";
+    G("gPassF").hidden = m==="forgot";
+    G("gPass").autocomplete = m==="login" ? "current-password" : "new-password";
+    G("gGo").textContent = {login:"Se connecter", signup:"Créer mon compte", forgot:"Recevoir le lien", newpass:"Enregistrer le mot de passe"}[m];
+    G("gSwitch").textContent = m==="login" ? "Créer un compte" : "J'ai déjà un compte";
+    G("gForgot").hidden = m!=="login";
+    G("gSub").textContent = {login:"Mesure la vitesse de chaque répétition et suis tes séances.", signup:"Crée ton compte. Ton coach te donnera ensuite le code de son équipe.",
+      forgot:"Indique ton e-mail : tu recevras un lien pour choisir un nouveau mot de passe.", newpass:"Choisis ton nouveau mot de passe (6 caractères minimum)."}[m];
+    gMsg("");
   }
+  function showGate(m){ document.documentElement.classList.add("gated"); if(m) gSet(m); }
+  function hideGate(){ document.documentElement.classList.remove("gated"); }
+  G("gSwitch").onclick=()=>gSet(gMode==="login"?"signup":"login");
+  G("gForgot").onclick=()=>gSet("forgot");
+  G("gForm").onsubmit=async e=>{
+    e.preventDefault();
+    const name=G("gName").value.trim(), email=G("gMail").value.trim(), password=G("gPass").value;
+    if(gMode!=="newpass" && !/^\S+@\S+\.\S+$/.test(email)){ gMsg("Indique une adresse e-mail valide.",true); return; }
+    if((gMode==="signup"||gMode==="newpass") && password.length<6){ gMsg("Le mot de passe doit faire au moins 6 caractères.",true); return; }
+    if(gMode==="signup" && !name){ gMsg("Indique ton prénom et ton nom.",true); return; }
+    G("gGo").disabled=true; gMsg("…");
+    try{
+      if(gMode==="login"){
+        const {error}=await sb.auth.signInWithPassword({email,password});
+        if(error) gMsg(/confirm/i.test(error.message) ? "Confirme d'abord ton adresse avec l'e-mail reçu." : "E-mail ou mot de passe incorrect.",true);
+        else gMsg("");
+      } else if(gMode==="signup"){
+        const {data,error}=await sb.auth.signUp({email,password,options:{data:{name}, emailRedirectTo: location.href.split("#")[0]}});
+        if(error) gMsg("Inscription impossible : "+error.message,true);
+        else if(!data.session){ gSet("login"); G("gMail").value=email; gMsg("Compte créé. Ouvre l'e-mail de confirmation reçu, puis connecte-toi ici."); }
+      } else if(gMode==="forgot"){
+        const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo: location.href.split("#")[0]});
+        if(error) gMsg("Envoi impossible : "+error.message,true);
+        else { gSet("login"); G("gMail").value=email; gMsg("C'est envoyé. Ouvre le lien reçu par e-mail pour choisir un nouveau mot de passe."); }
+      } else if(gMode==="newpass"){
+        const {error}=await sb.auth.updateUser({password});
+        if(error) gMsg("Modification impossible : "+error.message,true);
+        else { gSet("login"); hideGate(); load(); }
+      }
+    }catch(err){ gMsg("Pas de connexion au serveur. Vérifie ton réseau.",true); }
+    G("gGo").disabled=false;
+  };
   function chooseRoleView(){
     show(`<h2 id="t-cloud">Bienvenue ${esc(profile?.name||"")}</h2>
       <p class="note">Rejoins l'équipe de ton coach avec le code qu'il t'a donné.</p>
@@ -141,7 +174,8 @@
   }
   async function load(){
     const {data:{session}}=await sb.auth.getSession(); user=session?.user||null;
-    if(!user){ loginView(); return; }
+    if(!user){ card.hidden=true; showGate(); return; }
+    if(gMode!=="newpass") hideGate();
     const {data:p}=await sb.from("profiles").select("*").eq("id",user.id).maybeSingle(); profile=p;
     if(!profile?.team_id){ chooseRoleView(); return; }
     const {data:t}=await sb.from("teams").select("*").eq("id",profile.team_id).maybeSingle(); team=t;
@@ -155,7 +189,7 @@
     await loadSets(); await renderPlayer();
     await flushQueue(); sendRequested().then(async()=>{ await loadSets(); renderPlayer(); });
   }
-  sb.auth.onAuthStateChange((ev)=>{ if(ev==="SIGNED_IN"||ev==="SIGNED_OUT") load(); });
+  sb.auth.onAuthStateChange((ev)=>{ if(ev==="PASSWORD_RECOVERY"){ showGate("newpass"); return; } if(ev==="SIGNED_IN"||ev==="SIGNED_OUT") load(); });
   window.addEventListener("online", flushQueue);
   load();
 })();

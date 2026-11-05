@@ -7,14 +7,39 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vitesse barre">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" type="image/svg+xml" href="img/logo.svg">
+<link rel="apple-touch-icon" href="img/icon-180.png">
+<script src="config.js?v=5"></script>
+<script>
+// page d'accueil : connexion obligatoire quand les comptes sont activés (sauf session déjà ouverte sur ce téléphone)
+(function(){ try{ var c=window.VB_CONFIG||{}; if(!c.url||!c.key) return; var ref=(c.url.match(/https:\/\/([^.]+)/)||[])[1];
+  if(!localStorage.getItem("sb-"+ref+"-auth-token")) document.documentElement.classList.add("gated"); }catch(e){} })();
+</script>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}</style>
 </head>
 <body>
+<div id="gate" role="dialog" aria-modal="true" aria-labelledby="gTitle">
+  <div class="gin">
+    <img class="glogo" src="img/logo.svg" alt="">
+    <h1 id="gTitle">Vitesse de barre</h1>
+    <p class="gsub" id="gSub">Mesure la vitesse de chaque répétition et suis tes séances.</p>
+    <form id="gForm" novalidate>
+      <label id="gNameF" hidden>Prénom et nom<input id="gName" autocomplete="name"></label>
+      <label id="gMailF">E-mail<input id="gMail" type="email" autocomplete="username" inputmode="email" autocapitalize="off"></label>
+      <label id="gPassF">Mot de passe<input id="gPass" type="password" autocomplete="current-password"></label>
+      <button type="submit" class="gbtn" id="gGo">Se connecter</button>
+    </form>
+    <p class="gmsg" id="gMsg" role="status"></p>
+    <div class="glinks"><button type="button" id="gSwitch">Créer un compte</button><button type="button" id="gForgot">Mot de passe oublié ?</button></div>
+    <button type="button" class="goff" id="gOff" hidden>Continuer sans compte</button>
+  </div>
+  <div class="gfoot"><span class="qrp">QRP</span><span>Préparation physique · Football</span></div>
+</div>
 <title>Vitesse de barre</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700&family=Montserrat:wght@500;700;800&display=swap">
 <style>
 /* Layout: une colonne de poche, comme le minuteur : réglages, prise de vue, puis la série répétition par répétition. */
 :root{
@@ -115,6 +140,28 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .hrow b{font-weight:600}
 details summary{cursor:pointer;font-weight:600}
 details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+
+/* ---------- Page d'accueil (connexion) : charte QRP ---------- */
+#gate{display:none;position:fixed;inset:0;z-index:100;background:radial-gradient(120% 70% at 50% 0%,#14223d 0%,#0B1220 60%);color:#F5F7FA;font-family:Montserrat,var(--body);
+  flex-direction:column;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 28px) 20px calc(env(safe-area-inset-bottom,0px) + 18px);overflow-y:auto}
+html.gated #gate{display:flex} html.gated body{overflow:hidden}
+#gate .gin{width:100%;max-width:360px;margin:auto 0;display:flex;flex-direction:column;align-items:center;text-align:center}
+#gate .glogo{width:96px;height:96px;border-radius:24px;box-shadow:0 0 0 1px rgba(46,124,246,.35),0 18px 50px rgba(46,124,246,.25)}
+#gate h1{font-family:Montserrat,var(--display);font-weight:800;font-size:28px;letter-spacing:.01em;text-transform:none;margin:22px 0 6px;color:#F5F7FA}
+#gate .gsub{color:#9AA5B1;font-size:14px;margin:0 0 26px;max-width:290px}
+#gate form{width:100%;display:flex;flex-direction:column;gap:12px;text-align:left}
+#gate label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9AA5B1}
+#gate input{font:500 16px Montserrat,var(--body);color:#F5F7FA;background:#111A2E;border:1px solid rgba(154,165,177,.25);border-radius:12px;padding:13px 14px;width:100%;box-sizing:border-box}
+#gate input:focus{outline:2px solid #2E7CF6;outline-offset:1px;border-color:#2E7CF6}
+#gate .gbtn{font:800 16px Montserrat,var(--body);background:#2E7CF6;color:#fff;border:0;border-radius:12px;padding:14px;margin-top:6px;cursor:pointer}
+#gate .gbtn:disabled{opacity:.6}
+#gate .glinks{display:flex;justify-content:space-between;width:100%;margin-top:14px;gap:10px}
+#gate .glinks button,#gate .goff{background:none;border:0;color:#9AA5B1;font:600 13px Montserrat,var(--body);padding:6px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+#gate .glinks button.on{color:#F5F7FA}
+#gate .gmsg{min-height:20px;font-size:13px;color:#F5F7FA;margin:14px 0 0}
+#gate .gmsg.err{color:#FF6B35}
+#gate .gfoot{display:flex;align-items:center;gap:10px;color:#9AA5B1;font-size:12px;font-weight:600;letter-spacing:.04em;margin-top:24px}
+#gate .qrp{width:40px;height:40px;border-radius:50%;background:#0B1220;border:2px solid #2E7CF6;display:grid;place-items:center;font-weight:800;font-size:12px;letter-spacing:.04em;color:#F5F7FA;flex:0 0 auto}
 </style>
 
 <div class="wrap">
@@ -254,7 +301,6 @@ details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-directi
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
-<script src="config.js?v=4"></script>
 <script>
 "use strict";
 /* ---------- Réglages ---------- */
@@ -1177,6 +1223,6 @@ const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("chan
 runDemo(false);
 </script>
 
-<script src="cloud.js?v=4"></script>
+<script src="cloud.js?v=5"></script>
 </body>
 </html>
