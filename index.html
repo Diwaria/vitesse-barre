@@ -154,6 +154,10 @@ header{align-items:center;justify-content:flex-start;flex-wrap:nowrap}
 button.danger{color:var(--bad);border-color:var(--bad)}
 .hrow .sub{font-size:12px}
 .hday{margin-top:8px}
+.ptab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+.ptab th,.ptab td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
+.ptab th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.ptab th:first-child,.ptab td:first-child{text-align:left}
 details summary{cursor:pointer;font-weight:600}
 details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-direction:column;gap:6px;font-size:14px}
 
@@ -186,7 +190,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div><h1>Vitesse de barre</h1>
     <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
-  <nav class="topnav" id="topNav" data-v="sess quick settings hist">
+  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile">
     <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
     <h1 id="viewTitle"></h1>
   </nav>
@@ -195,6 +199,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <button type="button" class="tile main" id="tSess"><b id="tSessT">Commencer une séance</b><span id="tSessS">Exercice, séries, charge et perte de vitesse</span></button>
     <button type="button" class="tile" id="tQuick"><b>Mesure rapide</b><span>Une série isolée, en direct ou en vidéo</span></button>
     <button type="button" class="tile" id="tHist"><b>Séries enregistrées</b><span id="tHistS">Revoir ou supprimer vos séries</span></button>
+    <button type="button" class="tile" id="tProf"><b>Profil charge-vitesse</b><span>Estimer ton 1RM</span></button>
     <button type="button" class="tile" id="tSet"><b>Réglages</b><span>Vitesse affichée, zone cible, disque, voix</span></button>
   </div>
 
@@ -304,6 +309,34 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </details>
   </section>
 
+  <section class="card" id="profCard" data-v="profile" aria-labelledby="t-prof">
+    <h2 id="t-prof" hidden>Profil charge-vitesse</h2>
+    <div class="grid2">
+      <label class="field"><span class="lbl">Exercice</span><select id="pExo"></select></label>
+      <label class="field"><span class="lbl">Séries prises en compte</span><select id="pPeriod"><option value="30">30 derniers jours</option><option value="90">90 derniers jours</option><option value="0">Toutes</option></select></label>
+      <label class="field"><span class="lbl">Vitesse au 1RM (m/s)</span><input id="pMvt" type="number" inputmode="decimal" min="0.05" max="1.5" step="0.01"></label>
+    </div>
+    <div class="sum" id="pSum"></div>
+    <p class="warnbox" id="pMsg" hidden></p>
+    <div id="pChartWrap">
+      <div class="lbl" style="margin-bottom:6px">Meilleure vitesse (moyenne concentrique) selon la charge</div>
+      <canvas class="chart" id="chartL" width="680" height="380"></canvas>
+    </div>
+    <div id="pZonesWrap">
+      <div class="lbl" style="margin-bottom:6px">Charges et vitesses cibles</div>
+      <table class="ptab" id="pZones"></table>
+    </div>
+    <details>
+      <summary>Comment faire un test de profil fiable</summary>
+      <ol>
+        <li>Après l'échauffement, faites 4 à 6 charges croissantes, par exemple de 40 % à 85-90 % du maximum estimé.</li>
+        <li>À chaque charge : 2 à 3 répétitions (1 à 2 au-dessus de 80 %), le plus vite possible, avec 2 à 4 min de repos.</li>
+        <li>Indiquez bien la charge avant chaque mesure : l'app garde la meilleure répétition de chaque série.</li>
+        <li>La « vitesse au 1RM » est la vitesse de votre dernière répétition possible. Les valeurs par défaut sont des moyennes publiées (squat 0,30, développé couché 0,17, soulevé de terre 0,15 m/s) : si vous connaissez votre vraie vitesse au 1RM, saisissez-la.</li>
+      </ol>
+    </details>
+  </section>
+
   <section class="card" id="setCard" data-v="settings" aria-labelledby="t-set">
     <h2 id="t-set" hidden>Réglages</h2>
     <div class="grid2">
@@ -336,17 +369,17 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 "use strict";
 /* ---------- Réglages ---------- */
 const EXOS = {
-  squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
-  fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
-  hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv"},
-  rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true},
-  dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true},
-  bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv",ecc:true},
-  ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv"},
-  row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv"},
-  clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"mcv",floor:true},
-  cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"mcv",floor:true},
-  sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"mcv",floor:true}
+  squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
+  fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
+  hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv",mvt:0.25},
+  rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true,mvt:0.2},
+  dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true,mvt:0.15},
+  bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv",ecc:true,mvt:0.17},
+  ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv",mvt:0.19},
+  row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv",mvt:0.5},
+  clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"mcv",floor:true,mvt:0.8},
+  cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"mcv",floor:true,mvt:0.8},
+  sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"mcv",floor:true,mvt:1.0}
 };
 // Perte de vitesse d'une répétition par rapport à la 1re (ou à la meilleure jusque-là)
 function lossAt(vals, i){
@@ -1262,9 +1295,95 @@ $("bDel").onclick=()=>{
   S.history=S.history.filter(x=>x.id!==histOpen); save(); renderHistory(); closeHist();
 };
 
+/* ---------- Profil charge-vitesse : droite vitesse = a + b·charge, 1RM = charge à la vitesse au 1RM ---------- */
+function profilePoints(exo, days){
+  const since = days? Date.now()-days*864e5 : 0, byLoad=new Map();
+  for(const h of S.history){
+    if(h.exo!==exo || h.date<since || h.noProf) continue;
+    const L=pf(h.load); if(!(L>0) || !h.reps.length) continue;
+    const v=Math.max(...h.reps.map(r=>r.mcv));
+    const k=Math.round(L*10)/10, cur=byLoad.get(k);
+    if(!cur || v>cur.v) byLoad.set(k,{load:k, v, date:h.date});   // meilleure répétition à cette charge
+  }
+  return [...byLoad.values()].sort((a,b)=>a.load-b.load);
+}
+function fitProfile(pts, mvt){
+  if(pts.length<2) return null;
+  const n=pts.length, mx=pts.reduce((s,p)=>s+p.load,0)/n, my=pts.reduce((s,p)=>s+p.v,0)/n;
+  let sxx=0, sxy=0, syy=0; for(const p of pts){ sxx+=(p.load-mx)**2; sxy+=(p.load-mx)*(p.v-my); syy+=(p.v-my)**2; }
+  if(sxx===0) return null;
+  const b=sxy/sxx, a=my-b*mx, r2= syy? (sxy*sxy)/(sxx*syy) : 0;
+  const rm = b<0 ? (mvt-a)/b : NaN;
+  return {a, b, r2, rm, v0:a, l0: b<0? -a/b : NaN};
+}
+function renderProfile(){
+  const sel=$("pExo");
+  if(!sel.options.length){ fillExos(sel); }
+  S.prof ||= {exo:S.exo, days:"90", mvt:{}};
+  if(!EXOS[S.prof.exo]) S.prof.exo="squat";
+  sel.value=S.prof.exo; $("pPeriod").value=S.prof.days;
+  const exo=S.prof.exo, mvt= pf(S.prof.mvt[exo] ?? EXOS[exo].mvt);
+  $("pMvt").value = S.prof.mvt[exo] ?? EXOS[exo].mvt;
+  const pts=profilePoints(exo, +S.prof.days), fit=fitProfile(pts, mvt);
+  const sum=$("pSum"); sum.textContent="";
+  const msg=[];
+  if(EXOS[exo].cat==="Haltérophilie") msg.push("Pour l'haltérophilie, l'estimation du 1RM par la vitesse est peu fiable : utilisez plutôt ce profil pour suivre la vitesse à chaque charge.");
+  if(pts.length<2) msg.push(pts.length? "Il faut au moins 2 charges différentes pour tracer le profil. Mesurez une autre charge (Mesure rapide ou séance), en indiquant bien la charge." : `Aucune série de ${EXOS[exo].name.toLowerCase()} avec une charge indiquée sur cette période. Faites 4 à 6 séries à charges croissantes, en indiquant la charge à chaque fois.`);
+  else if(!fit || !(fit.b<0)) msg.push("La vitesse ne baisse pas quand la charge augmente : vérifiez les charges saisies ou ajoutez des charges plus lourdes.");
+  else {
+    if(pts.length<4) msg.push("Estimation indicative : avec 4 charges ou plus, le profil sera plus précis.");
+    if(fit.r2<0.9) msg.push(`Les points sont dispersés (R² ${num(fit.r2)}) : l'estimation est moins fiable. Faites un test complet le même jour.`);
+    const heavy=pts[pts.length-1].load; if(isFinite(fit.rm) && heavy<0.7*fit.rm) msg.push("Vos charges sont légères par rapport au 1RM estimé : ajoutez une charge plus lourde pour fiabiliser l'estimation.");
+  }
+  $("pMsg").hidden=!msg.length; $("pMsg").textContent=msg.join(" ");
+  const ok = fit && fit.b<0 && isFinite(fit.rm) && fit.rm>0;
+  const cells=[["1RM estimé", ok? Math.round(fit.rm)+" kg" : "–"],["Charges mesurées", String(pts.length)],["Fiabilité (R²)", fit? num(fit.r2) : "–"],["Perte par 10 kg", ok? num(-fit.b*10)+" m/s" : "–"]];
+  for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
+  $("pChartWrap").hidden=!pts.length;
+  drawProfile(pts, ok? fit : null, mvt);
+  const tb=$("pZones"); tb.textContent=""; $("pZonesWrap").hidden=!ok;
+  if(ok){
+    tb.innerHTML=`<tr><th>% 1RM</th><th>Charge</th><th>Vitesse cible</th></tr>`;
+    for(const pc of [40,50,60,70,75,80,85,90,95,100]){
+      const L=fit.rm*pc/100, v=fit.a+fit.b*L;
+      const tr=document.createElement("tr"); tr.innerHTML=`<td>${pc} %</td><td>${(Math.round(L*2)/2).toString().replace(".",",")} kg</td><td>${num(v)} m/s</td>`; tb.appendChild(tr);
+    }
+  }
+}
+function drawProfile(pts, fit, mvt){
+  const c=$("chartL"), g=c.getContext("2d"), W=c.width, H=c.height; g.clearRect(0,0,W,H);
+  if(!pts.length) return;
+  const fg=css("--fg"), mu=css("--muted"), li=css("--line"), ac=css("--accent"), bad=css("--bad");
+  const L=62,R=18,T=20,B=48;
+  const xmax0=Math.max(...pts.map(p=>p.load), fit? fit.rm : 0);
+  const xmin=0, xmax=Math.ceil(xmax0*1.08/10)*10||10;
+  const vmax=Math.ceil(Math.max(...pts.map(p=>p.v), mvt, fit? fit.a+fit.b*xmin:0)*1.1*10)/10, vmin=0;
+  const X=x=>L+(x-xmin)/(xmax-xmin)*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
+  g.font="22px Figtree, sans-serif"; g.lineWidth=1;
+  const vs = vmax>1.2? 0.25 : 0.1;
+  g.textAlign="right"; g.textBaseline="middle";
+  for(let v=0; v<=vmax+1e-9; v+=vs){ g.strokeStyle=li; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); g.fillStyle=mu; g.fillText(num(v, vs<0.2?1:2),L-10,Y(v)); }
+  const xs = xmax>200? 50 : xmax>80? 20 : 10;
+  g.textAlign="center"; g.textBaseline="top";
+  for(let x=0; x<=xmax; x+=xs){ g.fillStyle=mu; g.fillText(x+" kg", X(x), H-B+12); }
+  // vitesse au 1RM
+  g.setLineDash([8,6]); g.strokeStyle=bad; g.lineWidth=2; g.beginPath(); g.moveTo(L,Y(mvt)); g.lineTo(W-R,Y(mvt)); g.stroke(); g.setLineDash([]);
+  if(fit){
+    const x0=Math.min(...pts.map(p=>p.load))*0.6, x1=fit.rm;
+    g.strokeStyle=ac; g.lineWidth=3; g.beginPath(); g.moveTo(X(x0),Y(fit.a+fit.b*x0)); g.lineTo(X(x1),Y(fit.a+fit.b*x1)); g.stroke();
+    g.fillStyle=bad; g.beginPath(); g.arc(X(fit.rm),Y(mvt),9,0,7); g.fill();
+    g.fillStyle=fg; g.textAlign= X(fit.rm)>W-120? "right":"left"; g.textBaseline="top"; g.font="600 24px Figtree, sans-serif";
+    g.fillText(`1RM ≈ ${Math.round(fit.rm)} kg`, X(fit.rm)+(g.textAlign==="right"?-14:14), Y(mvt)+8);
+  }
+  for(const p of pts){ g.fillStyle=ac; g.strokeStyle=css("--surface"); g.lineWidth=3; g.beginPath(); g.arc(X(p.load),Y(p.v),8,0,7); g.fill(); g.stroke(); }
+}
+$("pExo").onchange=e=>{ S.prof.exo=e.target.value; save(); renderProfile(); };
+$("pPeriod").onchange=e=>{ S.prof.days=e.target.value; save(); renderProfile(); };
+$("pMvt").addEventListener("change", e=>{ const v=pf(e.target.value); if(v>0) S.prof.mvt[S.prof.exo]=v; else delete S.prof.mvt[S.prof.exo]; save(); renderProfile(); });
+
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
-const TITLES={sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées"};
+const TITLES={sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
   if(running || src) closeStage();
   view=v;
@@ -1274,6 +1393,7 @@ function go(v){
   if(v==="sess"){ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); }
   if(v==="quick") renderExos();
   if(v==="hist") renderHistory();
+  if(v==="profile") renderProfile();
   renderHome();
   scrollTo({top:0});
   try{ if(history.state?.v!==v) history[v==="home"?"replaceState":"pushState"]({v},""); }catch(e){}
@@ -1290,6 +1410,7 @@ $("tSess").onclick=()=>go("sess");
 $("tQuick").onclick=()=>go("quick");
 $("tHist").onclick=()=>go("hist");
 $("tSet").onclick=()=>go("settings");
+$("tProf").onclick=()=>go("profile");
 $("bHome").onclick=()=>{ if(history.state?.v && history.state.v!=="home" && history.length>1) history.back(); else go("home"); };
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
 renderHistory();
