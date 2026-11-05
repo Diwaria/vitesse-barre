@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vitesse barre">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" type="image/svg+xml" href="img/logo.svg">
 <link rel="apple-touch-icon" href="img/icon-180.png">
 <script src="config.js?v=6"></script>
@@ -645,6 +645,8 @@ function grabFrom(el, w, h){
 function openStage(){
   $("stageCard").hidden=false; $("prog").hidden=true; $("liveBig").hidden=true;
   $("bGo").disabled=true; tapPt=null; tracker=null; calPts=[]; $("calInfo").textContent="";
+  // on efface l'image précédente (caméra en direct, autre vidéo)
+  ctx.clearRect(0,0,cv.width,cv.height); setupImg=null; $("stage").classList.remove("lost","locked","mirror");
   $("stageCard").scrollIntoView({behavior:"smooth",block:"start"});
 }
 function closeStage(){
@@ -664,9 +666,22 @@ async function loadFile(file){
   const url=URL.createObjectURL(file); video.src=url;
   $("stage").appendChild(video);
   src={kind:"file",video,url};
+  // iPhone : Safari ne charge pas l'image d'une vidéo tant qu'elle n'a pas été lancée.
+  // On attend les métadonnées, puis on la lance une fraction de seconde (muette) pour obtenir la 1re image.
   try{
-    await new Promise((res,rej)=>{ video.onloadeddata=res; video.onerror=()=>rej(new Error("format")); setTimeout(()=>rej(new Error("timeout")),15000); });
-  }catch(e){ setHint("Impossible de lire cette vidéo sur ce téléphone. Essayez de la refilmer avec « Filmer une série »."); return; }
+    await new Promise((res,rej)=>{ let ok=false; const done=()=>{ if(!ok){ ok=true; res(); } };
+      video.onloadedmetadata=done; video.onloadeddata=done; video.onerror=()=>rej(new Error("format"));
+      setTimeout(()=>rej(new Error("timeout")),30000); video.load(); });
+    if(video.readyState<2){
+      try{ await video.play(); }catch(e){}
+      await new Promise(res=>{ if(video.readyState>=2) return res(); video.addEventListener("loadeddata",res,{once:true}); video.addEventListener("timeupdate",res,{once:true}); setTimeout(res,4000); });
+      video.pause();
+    }
+    if(!video.videoWidth) throw new Error("size");
+  }catch(e){
+    const big = file.size>150e6 ? " Elle est très lourde : coupe-la dans Photos pour ne garder que la série." : "";
+    setHint("Impossible de lire cette vidéo sur ce téléphone."+big+" Sinon, refilme la série avec « Filmer »."); return;
+  }
   const [w,h]=sizeFor(video.videoWidth, video.videoHeight); src.w=w; src.h=h;
   cv.width=w; cv.height=h;
   $("scrubWrap").hidden=false; $("scrub").value=0; $("bGo").textContent="Analyser la série";
