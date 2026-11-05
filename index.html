@@ -640,6 +640,7 @@ let lastResult=null, liveSpoken=0, liveStopSaid=false;
 function sizeFor(w,h){ const k=MAXSIDE/Math.max(w,h); return [Math.round(w*k), Math.round(h*k)]; }
 function grabFrom(el, w, h){
   if(work.width!==w||work.height!==h){ work.width=w; work.height=h; }
+  wctx.clearRect(0,0,w,h);   // sinon, si l'image n'est pas prête, on relirait celle de la vidéo précédente
   wctx.drawImage(el,0,0,w,h); return wctx.getImageData(0,0,w,h);
 }
 function openStage(){
@@ -690,7 +691,15 @@ async function loadFile(file){
 }
 function seek(tm){
   const v=src.video;
-  return new Promise(res=>{ const done=()=>{ v.removeEventListener("seeked",done); setupImg=grabFrom(v,src.w,src.h); redrawSetup(); res(); };
+  // iPhone : après un déplacement, l'image n'est pas toujours prête tout de suite ; on attend qu'elle soit affichée
+  // et on recommence tant qu'elle est vide
+  const blank=img=>{ const d=img.data; for(let i=3;i<d.length;i+=4*997) if(d[i]>0) return false; return true; };
+  const nextFrame=()=>new Promise(r=>{ let ok=false; const go=()=>{ if(!ok){ ok=true; r(); } };
+    if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(go); setTimeout(go,250); });
+  return new Promise(res=>{ const done=async()=>{ v.removeEventListener("seeked",done);
+      let img=null; for(let k=0;k<8;k++){ if(k) await nextFrame(); img=grabFrom(v,src.w,src.h); if(!blank(img)) break; }
+      if(src?.video!==v) return res();
+      setupImg=img; redrawSetup(); res(); };
     v.addEventListener("seeked",done); v.currentTime=Math.min(Math.max(0,tm), Math.max(0,(v.duration||1)-0.05)); });
 }
 $("scrub").addEventListener("input", ()=>{ if(src?.kind==="file" && !running){ const d=src.video.duration||0; seek(d*$("scrub").value/1000).then(()=>{ if(tapPt) initTracker(); }); } });
