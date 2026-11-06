@@ -15,7 +15,9 @@
 (function(){ try{ var c=window.VB_CONFIG||{}; if(!c.url||!c.key) return; var ref=(c.url.match(/https:\/\/([^.]+)/)||[])[1];
   if(!localStorage.getItem("sb-"+ref+"-auth-token")) document.documentElement.classList.add("gated"); }catch(e){} })();
 </script>
-<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}</style>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}.errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:50;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.errbar button{padding:6px 12px;font-size:13px}
+</style>
 </head>
 <body>
 <div id="gate" role="dialog" aria-modal="true" aria-labelledby="gTitle">
@@ -204,8 +206,12 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 #gate .gmsg.err{color:#FF6B35}
 #gate .gfoot{display:flex;align-items:center;gap:10px;color:#9AA5B1;font-size:12px;font-weight:600;letter-spacing:.04em;margin-top:24px}
 #gate .qrp{width:40px;height:40px;border-radius:50%;background:#0B1220;border:2px solid #2E7CF6;display:grid;place-items:center;font-weight:800;font-size:12px;letter-spacing:.04em;color:#F5F7FA;flex:0 0 auto}
+.errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:50;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.errbar button{padding:6px 12px;font-size:13px}
 </style>
 
+<div class="errbar" id="errBar" hidden role="alert"><div><b>Un problème est survenu.</b> <span id="errTxt"></span></div>
+  <div class="row"><button type="button" id="errReload">Recharger</button><button type="button" id="errClose">Fermer</button></div></div>
 <div class="wrap">
   <header id="homeHead" data-v="home">
     <img src="img/logo.svg" alt="" width="44" height="44" class="hlogo">
@@ -422,6 +428,25 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+<script>
+/* Erreurs : affichées en bas de l'écran (pour pouvoir les envoyer en capture), gardées pour la prochaine ouverture */
+function reportErr(e){
+  try{
+    const msg=(e && (e.message||e.reason?.message||e.reason||e)) + "";
+    const where=(e && e.filename? " ("+String(e.filename).split("/").pop()+":"+e.lineno+")" : "") || (e?.stack? " ("+String(e.stack).split("\n")[1]?.trim().slice(0,80)+")" : "");
+    if(/Script error|ResizeObserver|AbortError|NotAllowedError/.test(msg)) return;
+    const t=msg.slice(0,200)+where;
+    const el=document.getElementById("errBar"); if(el){ document.getElementById("errTxt").textContent=t; el.hidden=false; }
+    localStorage.setItem("vb-lasterr", JSON.stringify({t, d:Date.now()}));
+  }catch(_){}
+}
+addEventListener("error", e=>reportErr(e.error||e));
+addEventListener("unhandledrejection", e=>reportErr(e.reason||e));
+document.addEventListener("DOMContentLoaded",()=>{
+  const r=document.getElementById("errReload"), c=document.getElementById("errClose");
+  if(r) r.onclick=()=>location.reload(); if(c) c.onclick=()=>{ document.getElementById("errBar").hidden=true; };
+});
+</script>
 <script>
 "use strict";
 /* ---------- Réglages ---------- */
@@ -1032,6 +1057,7 @@ async function decodeFile(file, t0, w, h, onImg, isStopped){
   const config={codec:tr.codec, codedWidth:tr.video.width, codedHeight:tr.video.height, description};
   if(!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error("codec "+tr.codec);
   const smp=[]; mp4.onSamples=(id,u,ss)=>{ for(const x of ss) smp.push(x); };
+  if(tr.video.width*tr.video.height > 2100*2100) throw new Error("vidéo 4K");
   mp4.setExtractionOptions(tr.id,null,{nbSamples:1e9}); mp4.start(); mp4.flush();
   if(!smp.length) throw new Error("vide");
   // rotation enregistrée par le téléphone (vidéo portrait stockée en paysage)
@@ -1063,6 +1089,7 @@ async function decodeFile(file, t0, w, h, onImg, isStopped){
     if(err) throw err;
     if(x.cts/x.timescale - off < t0 - 1.5 && !x.is_sync) { /* avant le départ : décodé quand même pour la suite */ }
     dec.decode(new EncodedVideoChunk({type:x.is_sync?"key":"delta", timestamp:Math.round(1e6*x.cts/x.timescale), duration:Math.round(1e6*x.duration/x.timescale), data:x.data}));
+    x.data=null;   // libère la mémoire au fur et à mesure
     while(dec.decodeQueueSize>6 || out.length){ await drain(); if(dec.decodeQueueSize>6) await new Promise(r=>setTimeout(r,2)); if(err) throw err; }
   }
   await dec.flush(); await drain(); dec.close();
@@ -1078,7 +1105,7 @@ function sameImage(a,b){
 }
 async function runFile(){
   const v=src.video, mpp=mppNow(); if(!isFinite(mpp)) return;
-  if(src.file && !window.__noDecode){
+  if(src.file && !window.__noDecode && src.file.size < 150e6){
     running=true; samples=[]; $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true;
     setHint("Analyse image par image…");
     holdWake();
@@ -1186,7 +1213,8 @@ function liveLoop(){
   const v=src.video, hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
   const t0=performance.now();
   const next=()=> hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
-  const onFrame=(now,meta)=>{
+  const onFrame=(now,meta)=>{ try{ frame(now,meta); }catch(e){ reportErr(e); if(src?.video===v) next(); } };
+  const frame=(now,meta)=>{
     if(!src||src.kind!=="live"||src.video!==v) return;
     const tm = meta? meta.mediaTime : (performance.now()-t0)/1000;
     const img=grabFrom(v,src.w,src.h); setupImg=img;
@@ -1206,10 +1234,11 @@ function liveLoop(){
     const r=tracker.update(img);
     if(running){
       samples.push({t:tm,x:r.x,y:r.y,ok:r.ok,k:r.k});
-      ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240)); drawHud();
+      ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
+      try{ drawHud(); }catch(e){ reportErr(e); }
       if(r.ok){ lostSince=null; if(!liveStopSaid) banner("go","Barre prise en compte · à vous !"); }
       else { lostSince = lostSince ?? nowMs; if(nowMs-lostSince>400) banner("bad","Disque perdu · vérifiez le cadrage"); }
-      if(++liveK%5===0) liveCheck(mppNow());
+      if(++liveK%5===0){ try{ liveCheck(mppNow()); }catch(e){ reportErr(e); } }
       if(liveSpoken>0 && tm-lastRepT>8){ say("Série terminée.", false); stopLive(); return; }
       return next();
     }
