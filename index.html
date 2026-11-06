@@ -464,6 +464,9 @@ const EXOS = {
   cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"mcv",floor:true,mvt:0.8},
   sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"mcv",floor:true,mvt:1.0}
 };
+// Forme du jour (défini tôt : utilisé dès l'ouverture par l'accueil)
+const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
+const FORM_TIP={ok:"Séance normale.", warn:"Garder la séance, réduire un peu le volume.", bad:"Alléger nettement la séance ou l'adapter.", build:""};
 // Perte de vitesse d'une répétition par rapport à la 1re (ou à la meilleure jusque-là)
 function lossAt(vals, i){
   const ref = S.lossRef==="best" ? Math.max(...vals.slice(0,i+1)) : vals[0];
@@ -1676,8 +1679,6 @@ $("pPeriod").onchange=e=>{ S.prof.days=e.target.value; save(); renderProfile(); 
 $("pMvt").addEventListener("change", e=>{ const v=pf(e.target.value); if(v>0) S.prof.mvt[S.prof.exo]=v; else delete S.prof.mvt[S.prof.exo]; save(); renderProfile(); });
 
 /* ---------- Forme du jour : 3 squats sautés à charge fixe, comparés à la normale du joueur ---------- */
-const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
-const FORM_TIP={ok:"Séance normale.", warn:"Garder la séance, réduire un peu le volume.", bad:"Alléger nettement la séance ou l'adapter.", build:""};
 S.form ||= {load:"", tests:[]};
 function formVerdict(prev, v){
   // prev : tests précédents à la même charge (hors aujourd'hui), du plus ancien au plus récent
