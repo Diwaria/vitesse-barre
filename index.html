@@ -941,7 +941,7 @@ function drawOverlay(trail){
   }
 }
 
-/* Incrustation en haut à gauche (visible dans la vidéo enregistrée) : vitesse de chaque répétition, perte au-delà du seuil */
+/* Incrustation en bas à gauche (visible dans la vidéo enregistrée) : vitesse de chaque répétition, perte au-delà du seuil */
 function drawHud(){
   const W=cv.width, f=Math.max(13, Math.round(Math.min(W, cv.height)/17)), pad=Math.round(f*0.6), lh=Math.round(f*1.35);
   const head=`${EXOS[S.exo]?.name||""}${S.load? " · "+S.load+" kg":""}`;
@@ -954,7 +954,7 @@ function drawHud(){
   let bw=ctx.measureText(head).width;
   for(const r of rows) bw=Math.max(bw, ctx.measureText(`10  ${num(r.v)} m/s  −00 %`).width);
   if(lossTxt) bw=Math.max(bw, ctx.measureText(lossTxt).width);
-  const bh=lines*lh+pad*1.4, x0=pad, y0=pad;
+  const bh=lines*lh+pad*1.4, x0=pad, y0=cv.height-pad-bh;   // en bas à gauche
   ctx.fillStyle="rgba(11,18,32,.72)"; ctx.beginPath(); ctx.roundRect? ctx.roundRect(x0,y0,bw+pad*2,bh,f*0.5) : ctx.rect(x0,y0,bw+pad*2,bh); ctx.fill();
   let y=y0+pad*0.7;
   ctx.fillStyle="#9AA5B1"; ctx.fillText(head, x0+pad, y); y+=lh;
