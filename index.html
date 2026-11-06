@@ -1169,8 +1169,10 @@ function finishSet(mpp, origin){
   res.mpp=mpp; res.exo=S.exo; res.load=S.load; res.date=Date.now(); res.origin=origin; res.demo=false;
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
-  closeStage();
-  lastResult=res; renderResult(res); $("resCard").hidden=false; storeHistory(res);
+  try{ closeStage(); }catch(e){ reportErr(e); }
+  lastResult=res;
+  try{ renderResult(res); $("resCard").hidden=false; }catch(e){ reportErr(e); }
+  try{ storeHistory(res); }catch(e){ reportErr(e); }
   if(origin==="direct") Promise.resolve(video).then(b=>{ if(b && lastResult===res){ res.videoBlob=b; $("bSaveVid").hidden=false; } });
   if(view==="form"){ formDone(res, video); return; }
   if(view==="sess" && S.sess && !S.sess.over){
@@ -1408,6 +1410,7 @@ function setSummary(reps){
 function addSetToSess(res){
   const ss=S.sess, k=ss.done.length+1;
   ss.done.push({date:res.date, load:res.load, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
+  save();   // la série est gardée tout de suite, quoi qu'il arrive ensuite
   const sm=setSummary(res.reps);
   let txt = sm.n ? `Série ${k} : ${sm.n} répétitions. Meilleure ${spokenNum(sm.best)}. Perte ${Math.round(sm.loss)} pour cent.` : `Série ${k} : aucune répétition détectée.`;
   if(sm.hitAt) txt += ` Seuil atteint à la répétition ${sm.hitAt}.`;
@@ -1417,7 +1420,7 @@ function addSetToSess(res){
     txt += nx ? ` ${EXOS[ss.exo]?.name} terminé. Exercice suivant : ${EXOS[nx.exo]?.name||nx.exo}.` : " Séance terminée, bravo.";
   }
   else {
-    ss.sugg = S.autoLoad!==false && sm.n ? suggestLoad(ss, sm.best) : null;
+    try{ ss.sugg = S.autoLoad!==false && sm.n ? suggestLoad(ss, sm.best) : null; }catch(e){ ss.sugg=null; reportErr(e); }
     if(ss.sugg){ const g=ss.sugg;
       if(g.d){ ss.prevLoad=ss.load; ss.load=fmtKg(g.L); S.load=ss.load; $("load").value=S.load; }
       txt += g.d>0 ? ` Ajoute ${spokenKg(g.d)}, soit ${spokenKg(g.L)}.` : g.d<0 ? ` Enlève ${spokenKg(-g.d)}, soit ${spokenKg(g.L)}.` : " Vitesse dans la zone : garde la charge.";
@@ -1528,7 +1531,7 @@ $("sessEnd").onclick=()=>{
   if(!ss.over && ss.done.length){ const all=ss.done.map(d=>setSummary(d.reps)).filter(x=>x.n); if(all.length) say(`Séance terminée : ${ss.done.length} séries.`, true); }
   S.sess=null; save(); renderSess(); go("home");
 };
-renderSess();
+try{ renderSess(); }catch(e){ reportErr(e); }
 
 /* ---------- Séries enregistrées ---------- */
 const r3=x=>+(+x).toFixed(3);
@@ -1795,19 +1798,21 @@ function renderPerf(){
 let view="home";
 const TITLES={perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
-  if(running || src) closeStage();
-  if(view==="form" && v!=="form") formLeave();
+  // chaque étape est protégée : une erreur ne doit jamais empêcher de changer de page
+  const T=f=>{ try{ f(); }catch(e){ reportErr(e); } };
+  if(running || src) T(()=>{ running=false; recStop(); closeStage(); });
+  if(view==="form" && v!=="form") T(formLeave);
   view=v;
   document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
   $("viewTitle").textContent=TITLES[v]||"";
-  $("resCard").hidden=true; closeHist();
-  if(v==="sess"){ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); syncZone(); }
-  if(v==="quick") renderExos();
-  if(v==="hist") renderHistory();
-  if(v==="profile") renderProfile();
-  if(v==="perf") renderPerf();
-  if(v==="form") formEnter();
-  renderHome();
+  $("resCard").hidden=true; T(closeHist);
+  if(v==="sess") T(()=>{ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); syncZone(); });
+  if(v==="quick") T(renderExos);
+  if(v==="hist") T(renderHistory);
+  if(v==="profile") T(renderProfile);
+  if(v==="perf") T(renderPerf);
+  if(v==="form") T(formEnter);
+  T(renderHome);
   scrollTo({top:0});
   try{ if(history.state?.v!==v) history[v==="home"?"replaceState":"pushState"]({v},""); }catch(e){}
 }
@@ -1827,10 +1832,10 @@ $("tHist").onclick=()=>go("hist");
 $("tSet").onclick=()=>go("settings");
 $("tProf").onclick=()=>go("perf");
 $("tForm").onclick=()=>go("form");
-$("bHome").onclick=()=>{ if(history.state?.v && history.state.v!=="home" && history.length>1) history.back(); else go("home"); };
+$("bHome").onclick=()=>go("home");
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
 $("qLoss").addEventListener("input", e=>{ S.vloss=e.target.value; $("vloss").value=S.vloss; save(); });
-renderHistory();
+try{ renderHistory(); }catch(e){ reportErr(e); }
 go("home");
 
 const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("change",()=>{ if(lastResult) renderResult(lastResult); });
