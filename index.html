@@ -311,6 +311,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <canvas class="chart" id="chartP" width="640" height="360"></canvas>
     </div>
     <div class="row">
+      <button type="button" class="primary" id="bSaveVid" hidden>Enregistrer la vidéo sur le téléphone</button>
       <button type="button" id="bSpeak">Relire à voix haute</button>
       <button type="button" id="bDel" class="danger" hidden>Supprimer cette série</button>
     </div>
@@ -739,7 +740,7 @@ const MAXSIDE=640;
 let src=null;          // {kind, video?, stream?}
 let setupImg=null;     // ImageData de l'image de départ
 let tapPt=null, tracker=null, calPts=[], calMode="auto", running=false, samples=[];
-let lastResult=null, liveSpoken=0, liveStopSaid=false;
+let lastResult=null, liveSpoken=0, liveStopSaid=false, liveReps=[];
 
 function sizeFor(w,h){ const k=MAXSIDE/Math.max(w,h); return [Math.round(w*k), Math.round(h*k)]; }
 function grabFrom(el, w, h){
@@ -940,6 +941,47 @@ function drawOverlay(trail){
   }
 }
 
+/* Incrustation en haut à gauche (visible dans la vidéo enregistrée) : vitesse de chaque répétition, perte au-delà du seuil */
+function drawHud(){
+  const W=cv.width, f=Math.max(13, Math.round(Math.min(W, cv.height)/17)), pad=Math.round(f*0.6), lh=Math.round(f*1.35);
+  const head=`${EXOS[S.exo]?.name||""}${S.load? " · "+S.load+" kg":""}`;
+  const rows=liveReps.slice(-12), lim=pf(S.vloss);
+  const last=liveReps[liveReps.length-1];
+  const lossTxt = last && liveReps.length>1 && last.loss>0 ? `Perte ${Math.round(last.loss)} %` : "";
+  const lines=1+rows.length+(lossTxt?1:0);
+  ctx.save();
+  ctx.font=`600 ${f}px Figtree, system-ui, sans-serif`; ctx.textBaseline="top";
+  let bw=ctx.measureText(head).width;
+  for(const r of rows) bw=Math.max(bw, ctx.measureText(`10  ${num(r.v)} m/s  −00 %`).width);
+  if(lossTxt) bw=Math.max(bw, ctx.measureText(lossTxt).width);
+  const bh=lines*lh+pad*1.4, x0=pad, y0=pad;
+  ctx.fillStyle="rgba(11,18,32,.72)"; ctx.beginPath(); ctx.roundRect? ctx.roundRect(x0,y0,bw+pad*2,bh,f*0.5) : ctx.rect(x0,y0,bw+pad*2,bh); ctx.fill();
+  let y=y0+pad*0.7;
+  ctx.fillStyle="#9AA5B1"; ctx.fillText(head, x0+pad, y); y+=lh;
+  const off=liveReps.length-rows.length;
+  rows.forEach((r,i)=>{
+    ctx.fillStyle="#9AA5B1"; ctx.fillText(String(off+i+1), x0+pad, y);
+    ctx.fillStyle="#F5F7FA"; ctx.font=`700 ${f}px Figtree, system-ui, sans-serif`; ctx.fillText(`${num(r.v)} m/s`, x0+pad+f*1.6, y);
+    ctx.font=`600 ${f}px Figtree, system-ui, sans-serif`;
+    if(r.hit){ ctx.fillStyle="#FF6B35"; ctx.fillText(`−${Math.round(r.loss)} %`, x0+pad+f*1.6+ctx.measureText("0,00 m/s  ").width, y); }
+    y+=lh;
+  });
+  if(lossTxt){ const hit=isFinite(lim)&&lim>0&&last.loss>=lim; ctx.fillStyle= hit? "#FF6B35" : "#F5F7FA"; ctx.font=`800 ${f}px Figtree, system-ui, sans-serif`; ctx.fillText(lossTxt + (hit? " · seuil atteint":""), x0+pad, y); }
+  ctx.restore();
+}
+async function saveVideo(blob){
+  const ext=(blob.type||"").includes("webm")? "webm" : "mp4";
+  const d=new Date(lastResult?.date||Date.now());
+  const name=`serie-${(EXOS[lastResult?.exo]?.name||"vbt").replace(/\s+/g,"-").toLowerCase()}-${d.toISOString().slice(0,16).replace(/[:T]/g,"-")}.${ext}`;
+  const file=new File([blob], name, {type: blob.type || "video/mp4"});
+  try{
+    if(navigator.canShare?.({files:[file]})){ await navigator.share({files:[file]}); return; }
+  }catch(e){ if(e.name==="AbortError") return; }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(file); a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 5000);
+}
+$("bSaveVid").onclick=()=>{ if(lastResult?.videoBlob) saveVideo(lastResult.videoBlob); };
+
 /* ---------- Analyse ---------- */
 $("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ running? stopLive() : startLive(); } else runFile(); };
 
@@ -1079,6 +1121,7 @@ function finishSet(mpp, origin){
   res.pathImg = setupImg; res.samplesPx = samples;
   closeStage();
   lastResult=res; renderResult(res); $("resCard").hidden=false; storeHistory(res);
+  if(origin==="direct") Promise.resolve(video).then(b=>{ if(b && lastResult===res){ res.videoBlob=b; $("bSaveVid").hidden=false; } });
   if(view==="form"){ formDone(res, video); return; }
   if(view==="sess" && S.sess && !S.sess.over){
     const k=S.sess.done.length+1, snap=JSON.parse(JSON.stringify(S.sess));
@@ -1097,7 +1140,7 @@ function recStart(){
     const st=cv.captureStream(30);
     const types=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];
     const mt=types.find(t=>MediaRecorder.isTypeSupported?.(t));
-    rec=new MediaRecorder(st, mt? {mimeType:mt, videoBitsPerSecond:900000} : {videoBitsPerSecond:900000});
+    rec=new MediaRecorder(st, mt? {mimeType:mt, videoBitsPerSecond:2500000} : {videoBitsPerSecond:2500000});
     rec.ondataavailable=e=>{ if(e.data && e.data.size) recChunks.push(e.data); };
     rec.start(1000);
   }catch(e){ rec=null; }
@@ -1140,7 +1183,7 @@ function liveLoop(){
     const r=tracker.update(img);
     if(running){
       samples.push({t:tm,x:r.x,y:r.y,ok:r.ok,k:r.k});
-      ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240));
+      ctx.putImageData(img,0,0); drawOverlay(samples.slice(-240)); drawHud();
       if(r.ok){ lostSince=null; if(!liveStopSaid) banner("go","Barre prise en compte · à vous !"); }
       else { lostSince = lostSince ?? nowMs; if(nowMs-lostSince>400) banner("bad","Disque perdu · vérifiez le cadrage"); }
       if(++liveK%5===0) liveCheck(mppNow());
@@ -1187,7 +1230,7 @@ function autoFind(img, col){
 }
 function startLive(){
   const mpp=mppNow(); if(!isFinite(mpp)) return;
-  running=true; samples=[]; liveSpoken=0; liveStopSaid=false; lastRepT=0; recStart();
+  running=true; samples=[]; liveSpoken=0; liveStopSaid=false; lastRepT=0; liveReps=[]; recStart();
   $("bGo").textContent="Terminer la série"; $("bGo").disabled=false; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
   setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
 }
@@ -1200,6 +1243,7 @@ function liveCheck(mpp){
     const vals=res.reps.slice(0,liveSpoken).map(r=>r[S.metric]); const loss=lossAt(vals, liveSpoken-1); const lim=pf(S.vloss);
     $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}${liveSpoken>1? " · perte "+Math.round(loss)+" %":""}</small>`;
     const hit = isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim;
+    liveReps.push({v:val, loss, hit});
     let txt = S.voiceReps ? spokenNum(val) : "";
     if(hit){
       // à chaque répétition au-delà du seuil : le pourcentage de perte
@@ -1229,6 +1273,7 @@ function renderResult(res){
   $("resBadge").textContent = res.origin==="direct"?"Direct": res.origin==="vidéo"?"Vidéo":"";
   $("resBadge").hidden = !$("resBadge").textContent;
   const fromHist=!!res.histId;
+  $("bSaveVid").hidden=!res.videoBlob;
   $("bResBack").hidden=!fromHist; $("bDel").hidden=!fromHist;
   $("t-res").textContent = fromHist? "Série enregistrée" : "Résultats";
   $("pathWrap").hidden = !res.pathImg;
