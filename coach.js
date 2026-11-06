@@ -9,7 +9,7 @@
   const exName = k => EXOS[k]?.name || k;
   if(!cfg.url || !cfg.key || !window.supabase){ main.innerHTML = `<p class="note">L'espace coach n'est pas encore relié au serveur.</p>`; return; }
   const sb = window.supabase.createClient(cfg.url, cfg.key);
-  let user=null, profile=null, team=null, players=[], sets=[], formes=[], plans=[], tab="forme", filterPlayer="", weeks=6;
+  let user=null, profile=null, team=null, players=[], sets=[], formes=[], perfSets=[], perfPlayer="", plans=[], tab="forme", filterPlayer="", weeks=6;
 
   function exOptions(sel){
     const cats={}; for(const [k,e] of Object.entries(EXOS)) (cats[e.cat] ||= []).push([k,e]);
@@ -29,26 +29,28 @@
 
   async function loadData(){
     const since=new Date(Date.now()-weeks*7*864e5).toISOString();
-    const [p,s,pl,fm]=await Promise.all([
+    const [p,s,pl,fm,pf]=await Promise.all([
       sb.from("profiles").select("id,name,role").eq("team_id",team.id).order("name"),
       sb.from("sets").select("*").eq("team_id",team.id).gte("performed_at",since).order("performed_at",{ascending:false}).limit(2000),
       sb.from("planned_sessions").select("*").eq("team_id",team.id).gte("day",new Date(Date.now()-21*864e5).toISOString().slice(0,10)).order("day"),
-      sb.from("sets").select("player_id,load_kg,reps,performed_at,session_key").eq("team_id",team.id).like("session_key","forme-%").gte("performed_at",new Date(Date.now()-150*864e5).toISOString()).order("performed_at").limit(3000)
+      sb.from("sets").select("player_id,load_kg,reps,performed_at,session_key").eq("team_id",team.id).like("session_key","forme-%").gte("performed_at",new Date(Date.now()-150*864e5).toISOString()).order("performed_at").limit(3000),
+      sb.from("sets").select("player_id,exo,load_kg,reps,performed_at,session_key").eq("team_id",team.id).not("load_kg","is",null).gte("performed_at",new Date(Date.now()-120*864e5).toISOString()).order("performed_at",{ascending:false}).limit(5000)
     ]);
+    perfSets=(pf.data||[]).filter(x=>!String(x.session_key).startsWith("forme-") && x.load_kg>0);
     players=(p.data||[]).filter(x=>x.role==="player"); plans=pl.data||[];
     sets=(s.data||[]).filter(x=>!String(x.session_key).startsWith("forme-"));
     formes=fm.data||[];
   }
 
   function render(){
-    const tabs=[["forme","Forme du jour"],["suivi","Suivi"],["prog","Programmer"],["joueurs",`Joueurs (${players.length})`]];
+    const tabs=[["forme","Forme du jour"],["perf","Performances"],["suivi","Suivi"],["prog","Programmer"],["joueurs",`Joueurs (${players.length})`]];
     main.innerHTML=`<div class="row" style="justify-content:space-between;align-items:baseline"><h2 style="flex:0 1 auto">${esc(team.name)}</h2>
       <button type="button" class="small" id="cOut" style="flex:0 0 auto">Se déconnecter</button></div>
       <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button type="button" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}</button>`).join("")}</div>
       <div id="tabBody" class="col"></div>`;
     main.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; render(); });
     $("cOut").onclick=()=>sb.auth.signOut();
-    if(tab==="forme") renderForme(); else if(tab==="suivi") renderSuivi(); else if(tab==="prog") renderProg(); else renderPlayers();
+    if(tab==="forme") renderForme(); else if(tab==="perf") renderPerf(); else if(tab==="suivi") renderSuivi(); else if(tab==="prog") renderProg(); else renderPlayers();
   }
 
   /* ---------- Forme du jour (même calcul que dans l'app joueur) ---------- */
@@ -82,6 +84,46 @@
       rows.map(({p,ts,last,isToday})=>`<tr><td><b>${esc(p.name||"Sans nom")}</b></td>${ last ? `<td>${isToday?"<b>Aujourd'hui</b>":fmtDay(last.date)}</td><td><span class="fdot ${last.level}"></span> ${FL[last.level]}</td><td>${n2(last.v)} m/s</td><td>${last.m? n2(last.m):"–"}</td><td>${last.diff!=null? (last.diff>=0?"+":"−")+Math.abs(last.diff).toFixed(1).replace(".",",")+" %":"–"}</td><td><span class="fdots">${ts.slice(-7).map(t=>`<span class="fdot ${t.level}" title="${fmtDay(t.date)} : ${n2(t.v)} m/s"></span>`).join("")}</span></td>`
         : `<td colspan="6" style="color:var(--muted)">aucun test</td>`}</tr>`).join("") || `<tr><td colspan="7">Aucun joueur pour l'instant.</td></tr>`
       }</tbody></table></div>`;
+  }
+
+  /* ---------- Performances : 1RM estimé (profil charge-vitesse, même calcul que l'app) ---------- */
+  function points(pid, exo, until){
+    const since=until-90*864e5, by=new Map();
+    for(const r of perfSets){
+      const t=new Date(r.performed_at).getTime();
+      if(r.player_id!==pid || r.exo!==exo || t<since || t>until) continue;
+      const v=Math.max(0,...(r.reps||[]).map(x=>x.mcv||0)); if(!(v>0)) continue;
+      const k=Math.round(r.load_kg*10)/10, cur=by.get(k); if(!cur || v>cur.v) by.set(k,{load:k,v});
+    }
+    return [...by.values()].sort((a,b)=>a.load-b.load);
+  }
+  function oneRM(pts, mvt){
+    if(pts.length<2 || !(mvt>0)) return null;
+    const n=pts.length, mx=pts.reduce((s,p)=>s+p.load,0)/n, my=pts.reduce((s,p)=>s+p.v,0)/n;
+    let sxx=0,sxy=0,syy=0; for(const p of pts){ sxx+=(p.load-mx)**2; sxy+=(p.load-mx)*(p.v-my); syy+=(p.v-my)**2; }
+    if(!sxx) return null; const b=sxy/sxx, a=my-b*mx; if(!(b<0)) return null;
+    const rm=(mvt-a)/b; return rm>0? {rm, r2: syy? sxy*sxy/(sxx*syy):0, n} : null;
+  }
+  function perfFor(pid, exo){
+    const now=Date.now(), mvt=EXOS[exo]?.mvt;
+    return {now:oneRM(points(pid,exo,now),mvt), before:oneRM(points(pid,exo,now-30*864e5),mvt), pts:points(pid,exo,now)};
+  }
+  function renderPerf(){
+    const body=$("tabBody");
+    const exos=Object.keys(EXOS).filter(k=>EXOS[k].mvt && perfSets.some(r=>r.exo===k));
+    if(!exos.length){ body.innerHTML=`<p class="note">Pas encore de séries avec une charge sur les 120 derniers jours. Le 1RM estimé apparaît dès qu'un joueur a mesuré au moins 2 charges différentes sur un exercice.</p>`; return; }
+    const cell=pr=> pr.now ? `<b>${Math.round(pr.now.rm)} kg</b>${pr.before? ` <span class="${pr.now.rm>=pr.before.rm?"lossok":"lossbad"}">${pr.now.rm>=pr.before.rm?"+":"−"}${Math.round(Math.abs(pr.now.rm-pr.before.rm))}</span>`:""}` : `<span style="color:var(--muted)">–</span>`;
+    let html=`<p class="note">1RM estimé à partir des séries des 90 derniers jours (meilleure répétition à chaque charge, vitesse au 1RM de référence). Le chiffre en couleur : évolution sur 1 mois. Touchez un joueur pour le détail.</p>
+      <div class="tblwrap"><table class="tbl"><thead><tr><th>Joueur</th>${exos.map(k=>`<th>${esc(EXOS[k].name)}</th>`).join("")}</tr></thead><tbody>${
+      players.map(p=>`<tr><td><button type="button" class="small" data-pp="${p.id}">${esc(p.name||"Sans nom")}</button></td>${exos.map(k=>`<td>${cell(perfFor(p.id,k))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    const pl=players.find(p=>p.id===perfPlayer);
+    if(pl){
+      html+=`<div class="sess"><h3 style="margin:0">${esc(pl.name||"Sans nom")}</h3>${Object.keys(EXOS).filter(k=>perfSets.some(r=>r.player_id===pl.id && r.exo===k)).map(k=>{
+        const pr=perfFor(pl.id,k);
+        return `<div class="setrow"><span class="k">${esc(EXOS[k].name)}</span><span class="m">${pr.now? `1RM estimé <b>${Math.round(pr.now.rm)} kg</b> (${pr.now.r2>=0.9&&pr.now.n>=4?"fiable":"indicatif"})` : (EXOS[k].mvt? "1RM non estimable (moins de 2 charges)" : "pas de 1RM pour cet exercice")}<br>${pr.pts.slice(-6).map(q=>`${String(q.load).replace(".",",")} kg : ${n2(q.v)}`).join(" · ")}</span><span></span></div>`; }).join("")}</div>`;
+    }
+    body.innerHTML=html;
+    body.querySelectorAll("[data-pp]").forEach(b=>b.onclick=()=>{ perfPlayer = perfPlayer===b.dataset.pp? "" : b.dataset.pp; renderPerf(); });
   }
 
   /* ---------- Suivi ---------- */

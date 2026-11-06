@@ -168,6 +168,14 @@ button.danger{color:var(--bad);border-color:var(--bad)}
 .sugg b{font-family:var(--display);font-size:22px}
 .sugg.up{border-left-color:var(--ok)} .sugg.down{border-left-color:var(--warn)}
 button.small{padding:6px 10px;font-size:13px}
+.pcard{background:var(--sunk);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.pcard .ph{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.pcard .ph b{font-family:var(--display);font-size:18px;text-transform:uppercase}
+.pcard .rm{font-family:var(--display);font-size:32px;font-weight:700;line-height:1}
+.pcard .rm small{font-size:14px;color:var(--muted);font-weight:600}
+.pcard .evo{font-size:13px;font-weight:600} .evo.up{color:var(--ok)} .evo.down{color:var(--bad)}
+.pcard .lv{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;font-variant-numeric:tabular-nums}
+.pcard .lv span{background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:3px 8px}
 .ptab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
 .ptab th,.ptab td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
 .ptab th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
@@ -204,7 +212,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div><h1>Vitesse de barre</h1>
     <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
-  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form">
+  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form perf">
     <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
     <h1 id="viewTitle"></h1>
   </nav>
@@ -214,7 +222,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <button type="button" class="tile form" id="tForm"><b>Forme du jour</b><span id="tFormS">Test de 3 squats sautés</span></button>
     <button type="button" class="tile" id="tQuick"><b>Mesure rapide</b><span>Une série isolée, en direct ou en vidéo</span></button>
     <button type="button" class="tile" id="tHist"><b>Séries enregistrées</b><span id="tHistS">Revoir ou supprimer vos séries</span></button>
-    <button type="button" class="tile" id="tProf"><b>Profil charge-vitesse</b><span>Estimer ton 1RM</span></button>
+    <button type="button" class="tile" id="tProf"><b>Mes performances</b><span id="tProfS">1RM estimés et profil charge-vitesse</span></button>
     <button type="button" class="tile" id="tSet"><b>Réglages</b><span>Vitesse affichée, zone cible, disque, voix</span></button>
   </div>
 
@@ -350,6 +358,12 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
         <li>Si possible, filmez en 60 images/s : le pic de vitesse sera plus juste.</li>
       </ol>
     </details>
+  </section>
+
+  <section class="card" id="perfCard" data-v="perf" aria-labelledby="t-perf">
+    <h2 id="t-perf" hidden>Mes performances</h2>
+    <p class="note" style="margin:0">1RM estimé à partir de vos séries des 90 derniers jours (meilleure répétition à chaque charge). Indiquez bien la charge à chaque série.</p>
+    <div class="col" id="perfList"></div>
   </section>
 
   <section class="card" id="profCard" data-v="profile" aria-labelledby="t-prof">
@@ -1543,10 +1557,11 @@ $("bDel").onclick=()=>{
 };
 
 /* ---------- Profil charge-vitesse : droite vitesse = a + b·charge, 1RM = charge à la vitesse au 1RM ---------- */
-function profilePoints(exo, days){
-  const since = days? Date.now()-days*864e5 : 0, byLoad=new Map();
+function profilePoints(exo, days, until){
+  until = until || Date.now();
+  const since = days? until-days*864e5 : 0, byLoad=new Map();
   for(const h of S.history){
-    if(h.exo!==exo || h.date<since || h.noProf) continue;
+    if(h.exo!==exo || h.date<since || h.date>until || h.noProf) continue;
     const L=pf(h.load); if(!(L>0) || !h.reps.length) continue;
     const v=Math.max(...h.reps.map(r=>r.mcv));
     const k=Math.round(L*10)/10, cur=byLoad.get(k);
@@ -1716,9 +1731,40 @@ $("fmLive").onclick=()=>{ if(!(pf(S.form.load)>=0) || S.form.load===""){ $("fmLo
 $("fmCam").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
 $("fmLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
 
+/* ---------- Mes performances : 1RM estimé par exercice, évolution sur un mois ---------- */
+function perfOf(exo){
+  const mvt=pf(S.prof?.mvt?.[exo] ?? EXOS[exo]?.mvt);
+  const est=until=>{ const pts=profilePoints(exo, 90, until), f=fitProfile(pts, mvt);
+    return (f && f.b<0 && isFinite(f.rm) && f.rm>0 && pts.length>=2)? {rm:f.rm, r2:f.r2, n:pts.length} : null; };
+  const sets=S.history.filter(h=>h.exo===exo);
+  return {exo, now:est(), before:est(Date.now()-30*864e5), pts:profilePoints(exo, 90), last:Math.max(...sets.map(h=>h.date)), nSets:sets.length};
+}
+function renderPerf(){
+  const box=$("perfList"); box.textContent="";
+  const exos=[...new Set(S.history.map(h=>h.exo))].filter(k=>EXOS[k]);
+  if(!exos.length){ box.innerHTML=`<p class="note">Aucune série enregistrée pour l'instant. Vos performances apparaîtront ici après vos premières séries.</p>`; return; }
+  const list=exos.map(perfOf).sort((a,b)=>(!!b.now-!!a.now)||b.last-a.last);
+  for(const p of list){
+    const e=EXOS[p.exo], c=document.createElement("div"); c.className="pcard";
+    let evo="";
+    if(p.now && p.before){ const d=p.now.rm-p.before.rm; evo = Math.abs(d)<0.5? `<span class="evo">stable sur 1 mois</span>` : `<span class="evo ${d>0?"up":"down"}">${d>0?"+":"−"}${Math.round(Math.abs(d))} kg en 1 mois</span>`; }
+    const rel = p.now ? (p.now.r2>=0.9 && p.now.n>=4 ? "fiable" : "indicatif") : "";
+    const rmTxt = e.cat==="Haltérophilie" ? `<span class="sub">1RM non estimé pour l'haltérophilie</span>`
+      : p.now ? `<div class="rm">${Math.round(p.now.rm)} kg <small>1RM estimé · ${rel}</small></div>${evo}`
+      : `<span class="sub">${p.pts.length<2? "Il faut au moins 2 charges différentes pour estimer le 1RM." : "Profil incohérent : ajoutez des charges plus lourdes."}</span>`;
+    const lv=p.pts.slice(-6).map(q=>`<span>${String(q.load).replace(".",",")} kg · <b>${num(q.v)}</b></span>`).join("");
+    c.innerHTML=`<div class="ph"><b>${e.name}</b><span class="sub">${p.nSets} série${p.nSets>1?"s":""} · dernière ${new Date(p.last).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span></div>
+      ${p.exo==="jsquat"? `<span class="sub">Exercice du test de forme</span>` : rmTxt}
+      ${lv? `<div class="lbl">Meilleure vitesse par charge (m/s)</div><div class="lv">${lv}</div>`:""}`;
+    if(p.exo!=="jsquat" && e.cat!=="Haltérophilie"){ const b=document.createElement("button"); b.type="button"; b.className="small"; b.style.alignSelf="flex-start"; b.textContent="Voir le profil charge-vitesse";
+      b.onclick=()=>{ S.prof ||= {exo:p.exo, days:"90", mvt:{}}; S.prof.exo=p.exo; save(); go("profile"); }; c.appendChild(b); }
+    box.appendChild(c);
+  }
+}
+
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
-const TITLES={form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
+const TITLES={perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
   if(running || src) closeStage();
   if(view==="form" && v!=="form") formLeave();
@@ -1730,6 +1776,7 @@ function go(v){
   if(v==="quick") renderExos();
   if(v==="hist") renderHistory();
   if(v==="profile") renderProfile();
+  if(v==="perf") renderPerf();
   if(v==="form") formEnter();
   renderHome();
   scrollTo({top:0});
@@ -1749,7 +1796,7 @@ $("tSess").onclick=()=>go("sess");
 $("tQuick").onclick=()=>go("quick");
 $("tHist").onclick=()=>go("hist");
 $("tSet").onclick=()=>go("settings");
-$("tProf").onclick=()=>go("profile");
+$("tProf").onclick=()=>go("perf");
 $("tForm").onclick=()=>go("form");
 $("bHome").onclick=()=>{ if(history.state?.v && history.state.v!=="home" && history.length>1) history.back(); else go("home"); };
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
