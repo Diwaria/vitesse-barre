@@ -188,6 +188,12 @@ button.small{padding:6px 10px;font-size:13px}
 .ptrow .res b{font-size:18px}
 .ptrow .acts{display:flex;gap:6px;flex-wrap:wrap}
 .ptrow .acts>*{padding:7px 10px;font-size:13px}
+.ptsv{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ptsv>button{width:100%;border:0;border-radius:0;background:var(--sunk);justify-content:space-between;text-align:left;padding:12px;font-weight:400}
+.ptsv>button b{font-weight:700}
+.ptsv .det{padding:12px;display:flex;flex-direction:column;gap:10px}
+.ptsv .ptab th,.ptsv .ptab td{padding:6px 3px;font-size:13px}
+.ptsv .ptab th{font-size:10px;letter-spacing:.02em}
 .ptab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
 .ptab th,.ptab td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
 .ptab th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
@@ -274,13 +280,18 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </div>
     <p class="note" style="margin:0">Une série par charge, de la plus légère à la plus lourde (4 à 6 charges, 2 à 3 répétitions le plus vite possible). Pour chaque charge : filmez en direct, filmez ou importez une vidéo.</p>
     <div class="col" id="ptRows"></div>
-    <div class="row"><button type="button" id="ptAdd">+ Ajouter une série</button><button type="button" id="ptReset">Nouveau test</button></div>
+    <div class="row"><button type="button" id="ptAdd">+ Ajouter une série</button><button type="button" id="ptReset">Effacer</button></div>
     <div class="actions" style="margin:0"><button type="button" class="camSel">Caméra : arrière</button></div>
     <div id="ptResult" hidden>
       <div class="sum" id="ptSum" style="grid-template-columns:repeat(2,1fr)"></div>
       <p class="warnbox" id="ptMsg" hidden></p>
       <div class="lbl" style="margin:10px 0 6px">Vitesse selon la charge</div>
       <canvas class="chart" id="chartT" width="680" height="380"></canvas>
+      <button type="button" class="primary big" id="ptSave" style="margin-top:12px;width:100%">Enregistrer le test</button>
+    </div>
+    <div id="ptSavedWrap" hidden>
+      <div class="lbl" style="margin:8px 0 6px">Tests enregistrés</div>
+      <div class="col" id="ptSaved"></div>
     </div>
   </section>
 
@@ -1863,7 +1874,7 @@ function renderPtest(){
       f.onchange=e=>{ loadFile(e.target.files[0]); e.target.value=""; }; }
     box.appendChild(el);
   });
-  renderPtResult();
+  renderPtResult(); renderPtSaved();
 }
 function ptPoints(){
   return ptState().rows.filter(r=>r.done?.n && pf(r.load)>0).map(r=>({load:pf(r.load), v:r.done.v})).sort((a,b)=>a.load-b.load);
@@ -1901,7 +1912,56 @@ $("ptExo").onchange=e=>{ const P=ptState(); if(P.rows.some(r=>r.done) && !confir
   P.exo=e.target.value; P.rows=P.rows.map(r=>({load:r.load})); S.exo=P.exo; save(); renderPtest(); };
 $("ptMvt").addEventListener("change", e=>{ const v=pf(e.target.value); S.prof ||= {exo:S.exo, days:"90", mvt:{}}; if(v>0) S.prof.mvt[S.ptest.exo]=v; else delete S.prof.mvt[S.ptest.exo]; save(); renderPtResult(); });
 $("ptAdd").onclick=()=>{ const P=ptState(), last=P.rows[P.rows.length-1]; P.rows.push({load: pf(last?.load)>0 ? String(pf(last.load)+(EXOS[P.exo]?.cat==="Haut du corps"?5:10)) : ""}); save(); renderPtest(); };
-$("ptReset").onclick=()=>{ if(ptState().rows.some(r=>r.done) && !confirm("Effacer ce test et en commencer un nouveau ? Les séries restent dans Séries enregistrées.")) return; const exo=S.ptest.exo; S.ptest=null; ptState().exo=exo; save(); renderPtest(); };
+// Enregistrement d'un test terminé, puis nouveau test vierge ; liste des tests en bas de la page
+function ptSummary(rows, exo, mvt){
+  const pts=rows.filter(r=>r.done?.n && pf(r.load)>0).map(r=>({load:pf(r.load), v:r.done.v})).sort((a,b)=>a.load-b.load);
+  const f=fitProfile(pts, mvt); const ok=f && f.b<0 && isFinite(f.rm) && f.rm>0;
+  return {pts, fit: ok? f : null};
+}
+$("ptSave").onclick=()=>{
+  const P=ptState(), rows=P.rows.filter(r=>r.done?.n && pf(r.load)>0);
+  if(!rows.length){ say("Aucune série mesurée à enregistrer.", true); return; }
+  const mvt=ptMvt(), sm=ptSummary(rows, P.exo, mvt);
+  (S.ptests ||= []).unshift({id:"t"+Date.now(), date:Date.now(), exo:P.exo, mvt, rows:rows.map(r=>({load:r.load, done:r.done})), rm: sm.fit? +sm.fit.rm.toFixed(1) : null, r2: sm.fit? +sm.fit.r2.toFixed(3) : null});
+  S.ptests=S.ptests.slice(0,100);
+  S.ptest=null; ptState().exo=P.exo; save(); renderPtest();
+  say(`Test enregistré${sm.fit? ". 1RM estimé : "+Math.round(sm.fit.rm)+" kilos" : ""}.`, true);
+  const first=$("ptSaved").firstElementChild; if(first){ first.querySelector("button").click(); first.scrollIntoView({behavior:"smooth",block:"start"}); }
+};
+let ptOpen=null;
+function renderPtSaved(){
+  const list=S.ptests||[], box=$("ptSaved"); box.textContent="";
+  $("ptSavedWrap").hidden=!list.length;
+  const lim=pf(S.vloss);
+  list.forEach(t=>{
+    const w=document.createElement("div"); w.className="ptsv";
+    const d=new Date(t.date);
+    const head=document.createElement("button"); head.type="button";
+    head.innerHTML=`<span><b>${EXOS[t.exo]?.name||t.exo}</b><br><span class="sub">${d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${t.rows.length} charge${t.rows.length>1?"s":""}</span></span><span style="text-align:right"><b>${t.rm? Math.round(t.rm)+" kg":"–"}</b><br><span class="sub">1RM estimé ${ptOpen===t.id?"▴":"▾"}</span></span>`;
+    head.onclick=()=>{ ptOpen = ptOpen===t.id? null : t.id; renderPtSaved(); };
+    w.appendChild(head);
+    if(ptOpen===t.id){
+      const det=document.createElement("div"); det.className="det";
+      const sm=ptSummary(t.rows, t.exo, t.mvt);
+      det.innerHTML=`<div class="sum" style="grid-template-columns:repeat(2,1fr)">
+          <div class="stat"><b>${sm.fit? Math.round(sm.fit.rm)+" kg":"–"}</b><span>1RM approximatif</span></div>
+          <div class="stat"><b>${sm.fit? num(sm.fit.r2):"–"}</b><span>Fiabilité (R²)</span></div>
+          <div class="stat"><b>${sm.fit? num(-sm.fit.b*10)+" m/s":"–"}</b><span>Perte par 10 kg</span></div>
+          <div class="stat"><b>${num(t.mvt)} m/s</b><span>Vitesse au 1RM</span></div></div>
+        <table class="ptab"><tr><th>Charge</th><th>Meilleure</th><th>Rép.</th><th>Amplitude</th><th>Perte</th></tr>${
+          t.rows.map(r=>`<tr><td>${String(r.load).replace(".",",")} kg</td><td>${num(r.done.v)} m/s</td><td>${r.done.n}</td><td>${Math.round(r.done.rom*100)} cm</td><td class="${isFinite(lim)&&lim>0&&r.done.loss>=lim?"lossbad":""}">${Math.round(r.done.loss)} %</td></tr>`).join("")}</table>
+        <canvas class="chart" width="680" height="380" id="cv_${t.id}"></canvas>`;
+      if(sm.fit){ const z=document.createElement("table"); z.className="ptab"; z.innerHTML=`<tr><th>% 1RM</th><th>Charge</th><th>Vitesse cible</th></tr>`+[50,60,70,80,90].map(pc=>{ const L=sm.fit.rm*pc/100; return `<tr><td>${pc} %</td><td>${String(Math.round(L*2)/2).replace(".",",")} kg</td><td>${num(sm.fit.a+sm.fit.b*L)} m/s</td></tr>`; }).join(""); det.appendChild(z); }
+      const del=document.createElement("button"); del.type="button"; del.className="danger small"; del.style.alignSelf="flex-start"; del.textContent="Supprimer ce test";
+      del.onclick=()=>{ if(!del.dataset.arm){ del.dataset.arm=1; del.textContent="Toucher encore pour confirmer"; return; } S.ptests=S.ptests.filter(x=>x.id!==t.id); ptOpen=null; save(); renderPtSaved(); };
+      det.appendChild(del);
+      w.appendChild(det);
+      setTimeout(()=>drawProfile(sm.pts, sm.fit, t.mvt, "cv_"+t.id), 0);
+    }
+    box.appendChild(w);
+  });
+}
+$("ptReset").onclick=()=>{ if(ptState().rows.some(r=>r.done) && !confirm("Effacer ce test sans l'enregistrer ? Les séries restent dans Séries enregistrées.")) return; const exo=S.ptest.exo; S.ptest=null; ptState().exo=exo; save(); renderPtest(); };
 
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
