@@ -164,6 +164,10 @@ button.danger{color:var(--bad);border-color:var(--bad)}
 .verdict .vc{font-size:14px;opacity:.95}
 .fdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle;background:var(--muted)}
 .fdot.ok{background:var(--ok)} .fdot.warn{background:var(--warn)} .fdot.bad{background:var(--bad)}
+.sugg{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px;border-radius:12px;background:var(--sunk);border-left:4px solid var(--accent)}
+.sugg b{font-family:var(--display);font-size:22px}
+.sugg.up{border-left-color:var(--ok)} .sugg.down{border-left-color:var(--warn)}
+button.small{padding:6px 10px;font-size:13px}
 .ptab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
 .ptab th,.ptab td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
 .ptab th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
@@ -248,6 +252,10 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
         <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
         <label class="field"><span class="lbl">Perte calculée par rapport à</span><select id="lossRef"><option value="best">la meilleure répétition</option><option value="first">la 1re répétition</option></select></label>
       </div>
+      <div class="field"><span class="lbl">Zone de vitesse visée (m/s), facultatif</span>
+        <div class="grid2"><input id="sZmin" type="number" inputmode="decimal" step="0.05" min="0" placeholder="min, ex. 0,60" aria-label="Vitesse minimale visée"><input id="sZmax" type="number" inputmode="decimal" step="0.05" min="0" placeholder="max, ex. 0,75" aria-label="Vitesse maximale visée"></div></div>
+      <label class="toggle"><input id="autoLoad" type="checkbox" checked> Proposer la charge de la série suivante pour rester dans la zone</label>
+      <p class="note" id="zoneHint" style="margin:0"></p>
       <label class="toggle"><input id="voiceReps" type="checkbox" checked> Annoncer aussi la vitesse de chaque répétition</label>
       <div class="row"><button type="button" id="sessCancel">Annuler</button><button type="button" class="primary" id="sessGo">Lancer la séance</button></div>
     </div>
@@ -258,6 +266,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       </div>
       <p class="note" id="sessPlan" hidden></p>
       <div class="sets" id="sessSets"></div>
+      <div class="sugg" id="sessSugg" hidden><div id="suggTxt"></div><button type="button" id="suggUndo" class="small"></button></div>
       <div class="actions" id="sessActions">
         <button type="button" class="primary big" id="sessLive"></button>
         <label class="btn">Filmer<input id="sCam" type="file" accept="video/*" capture="environment"></label>
@@ -423,7 +432,7 @@ function lossAt(vals, i){
 }
 const METRIC_NAME = {mcv:"moyenne concentrique",mpv:"moyenne propulsive",peak:"pic"};
 const KEY = "vbt.v1";
-let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,voiceReps:true,lossRef:"best",facing:"environment",history:[],sess:null};
+let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,voiceReps:true,lossRef:"best",facing:"environment",history:[],sess:null,autoLoad:true};
 try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.parse(raw)); }catch(e){}
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 const $ = id => document.getElementById(id);
@@ -1355,7 +1364,7 @@ function setSummary(reps){
 }
 function addSetToSess(res){
   const ss=S.sess, k=ss.done.length+1;
-  ss.done.push({date:res.date, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
+  ss.done.push({date:res.date, load:res.load, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
   const sm=setSummary(res.reps);
   let txt = sm.n ? `Série ${k} : ${sm.n} répétitions. Meilleure ${spokenNum(sm.best)}. Perte ${Math.round(sm.loss)} pour cent.` : `Série ${k} : aucune répétition détectée.`;
   if(sm.hitAt) txt += ` Seuil atteint à la répétition ${sm.hitAt}.`;
@@ -1364,14 +1373,65 @@ function addSetToSess(res){
     const nx = ss.plan && ss.plan.exercises[ss.plan.idx+1];
     txt += nx ? ` ${EXOS[ss.exo]?.name} terminé. Exercice suivant : ${EXOS[nx.exo]?.name||nx.exo}.` : " Séance terminée, bravo.";
   }
-  else txt += ` Prochaine : série ${k+1}.`;
+  else {
+    ss.sugg = S.autoLoad!==false && sm.n ? suggestLoad(ss, sm.best) : null;
+    if(ss.sugg){ const g=ss.sugg;
+      if(g.d){ ss.prevLoad=ss.load; ss.load=fmtKg(g.L); S.load=ss.load; $("load").value=S.load; }
+      txt += g.d>0 ? ` Ajoute ${spokenKg(g.d)}, soit ${spokenKg(g.L)}.` : g.d<0 ? ` Enlève ${spokenKg(-g.d)}, soit ${spokenKg(g.L)}.` : " Vitesse dans la zone : garde la charge.";
+    }
+    txt += ` Prochaine : série ${k+1}.`;
+  }
   save(); renderSess(); say(txt, true);
   $("sessCard").scrollIntoView({behavior:"smooth",block:"start"});
 }
+/* Charge de la série suivante : on vise le milieu de la zone de vitesse, avec la pente du profil charge-vitesse */
+const fmtKg=x=>String(Math.round(x*10)/10);
+const kgTxt=x=>fmtKg(x).replace(".", ",");
+const spokenKg=x=>String(Math.round(x*10)/10).replace(".", " virgule ")+" kilos";
+function suggestLoad(ss, v){
+  const lo=pf(S.zmin), hi=pf(S.zmax), L=pf(ss.load);
+  if((!isFinite(lo)&&!isFinite(hi)) || !(L>0) || !isFinite(v)) return null;
+  if((!isFinite(lo)||v>=lo) && (!isFinite(hi)||v<=hi)) return {d:0, L, v};
+  const target = isFinite(lo)&&isFinite(hi) ? (lo+hi)/2 : isFinite(lo)? lo+0.03 : hi-0.03;
+  const step = EXOS[ss.exo]?.cat==="Haut du corps" ? 2.5 : 5;
+  let fit=null;
+  if(S.metric==="mcv"){ fit=fitProfile(profilePoints(ss.exo, 90), 0.3); if(!(fit && fit.b<0 && fit.r2>=0.8)) fit=null; }
+  let d = fit ? (target-v)/fit.b : (v>target? step : -step);
+  d = Math.max(-Math.max(step, 0.15*L), Math.min(Math.max(step, 0.15*L), d));
+  d = Math.round(d/2.5)*2.5; if(d===0) d = v>target? 2.5 : -2.5;
+  if(L+d<0) d=-L;
+  return {d, L:L+d, v, prof:!!fit};
+}
+function renderSugg(){
+  const ss=S.sess, g=ss?.sugg, el=$("sessSugg");
+  if(!g || ss.over){ el.hidden=true; return; }
+  el.hidden=false; el.className="sugg "+(g.d>0?"up":g.d<0?"down":"");
+  $("suggTxt").innerHTML = g.d ? `<span class="lbl">Série suivante${g.prof?" · d'après ton profil":""}</span><br><b>${kgTxt(g.L)} kg</b> (${g.d>0?"+":"−"}${kgTxt(Math.abs(g.d))} kg)<br><span class="sub">Meilleure vitesse ${num(g.v)} m/s, zone ${num(pf(S.zmin))} à ${num(pf(S.zmax))} m/s</span>`
+                                : `<span class="lbl">Série suivante</span><br><b>Garde ${kgTxt(g.L)} kg</b><br><span class="sub">Vitesse ${num(g.v)} m/s dans la zone</span>`;
+  $("suggUndo").hidden=!g.d; $("suggUndo").textContent=`Garder ${String(ss.prevLoad||"").replace(".",",")} kg`;
+}
+$("suggUndo").onclick=()=>{ const ss=S.sess; if(!ss?.sugg) return; if(ss.prevLoad){ ss.load=ss.prevLoad; S.load=ss.load; $("load").value=S.load; } ss.sugg=null; save(); renderSess(); };
+function renderZoneHint(){
+  const exo=$("exoSel").value||S.exo, lo=pf(S.zmin), hi=pf(S.zmax);
+  const fit=fitProfile(profilePoints(exo, 90), pf(S.prof?.mvt?.[exo] ?? EXOS[exo]?.mvt));
+  let t="";
+  if(fit && fit.b<0 && isFinite(fit.rm)){
+    const kg=v=>kgTxt(Math.round(((v-fit.a)/fit.b)/2.5)*2.5);
+    t = `D'après ton profil (1RM estimé ${Math.round(fit.rm)} kg)`;
+    if(isFinite(lo)||isFinite(hi)) t += ` : cette zone correspond à ${isFinite(hi)? kg(hi):"?"} – ${isFinite(lo)? kg(lo):"?"} kg.`;
+    else t += ". Indique une zone de vitesse pour avoir la charge correspondante.";
+  } else t = (isFinite(lo)||isFinite(hi)) ? `Pas encore de profil charge-vitesse pour cet exercice : l'app proposera ±${EXOS[exo]?.cat==="Haut du corps"?"2,5":"5"} kg selon la vitesse de chaque série.` : "";
+  $("zoneHint").textContent=t; $("zoneHint").hidden=!t;
+}
+function syncZone(){ $("sZmin").value=S.zmin||""; $("sZmax").value=S.zmax||""; $("autoLoad").checked=S.autoLoad!==false; renderZoneHint(); }
+$("sZmin").addEventListener("input",e=>{ S.zmin=e.target.value; $("zmin").value=S.zmin; save(); renderZoneHint(); });
+$("sZmax").addEventListener("input",e=>{ S.zmax=e.target.value; $("zmax").value=S.zmax; save(); renderZoneHint(); });
+$("autoLoad").addEventListener("change",e=>{ S.autoLoad=e.target.checked; save(); });
+$("exoSel").addEventListener("change", renderZoneHint);
 function renderSess(){
   const ss=S.sess;
   $("sessRun").hidden=!ss; $("sessForm").hidden=!!ss; renderHome(); if(!ss) return;
-  $("sessTitle").textContent=`${EXOS[ss.exo]?.name||""}${ss.load? " · "+ss.load+" kg":""}`;
+  $("sessTitle").textContent=`${EXOS[ss.exo]?.name||""}${ss.load? " · "+String(ss.load).replace(".",",")+" kg":""}`;
   const k=ss.done.length;
   $("sessCount").textContent = ss.over? "Terminée" : `Série ${k+1} / ${ss.sets}`;
   const box=$("sessSets"); box.textContent="";
@@ -1380,7 +1440,7 @@ function renderSess(){
     row.className="setrow"+(d?"":(i===k && !ss.over?" cur":" todo"));
     if(d){
       const sm=setSummary(d.reps);
-      row.innerHTML = sm.n ? `<span class="k">S${i+1}</span><span class="m">${sm.n} rép. · meilleure <b>${num(sm.best)}</b> · dernière <b>${num(sm.last)}</b> m/s</span><span class="l ${sm.hitAt?"lossbad":"lossok"}">${sm.loss>=0?"−":"+"}${Math.abs(Math.round(sm.loss))} %</span>`
+      row.innerHTML = sm.n ? `<span class="k">S${i+1}</span><span class="m">${d.load? String(d.load).replace(".",",")+" kg · ":""}${sm.n} rép. · meilleure <b>${num(sm.best)}</b> · dernière <b>${num(sm.last)}</b> m/s</span><span class="l ${sm.hitAt?"lossbad":"lossok"}">${sm.loss>=0?"−":"+"}${Math.abs(Math.round(sm.loss))} %</span>`
                            : `<span class="k">S${i+1}</span><span class="m">aucune répétition détectée</span><span></span>`;
     } else row.innerHTML=`<span class="k">S${i+1}</span><span class="m">${i===k?"à filmer":"à venir"}</span><span></span>`;
     box.appendChild(row);
@@ -1391,6 +1451,7 @@ function renderSess(){
   $("sessPlan").hidden=!ss.plan; if(ss.plan) $("sessPlan").textContent=`${ss.plan.title||"Séance du coach"} · exercice ${ss.plan.idx+1} sur ${ss.plan.exercises.length}`;
   $("sessLive").textContent=`Série ${k+1} en direct`;
   $("sessEnd").textContent= ss.over? "Fermer la séance" : "Terminer la séance";
+  renderSugg();
 }
 $("sessCancel").onclick=()=>go("home");
 const clampSets=v=>Math.max(1,Math.min(20,Math.round(pf(v)||1)));
@@ -1665,7 +1726,7 @@ function go(v){
   document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
   $("viewTitle").textContent=TITLES[v]||"";
   $("resCard").hidden=true; closeHist();
-  if(v==="sess"){ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); }
+  if(v==="sess"){ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); syncZone(); }
   if(v==="quick") renderExos();
   if(v==="hist") renderHistory();
   if(v==="profile") renderProfile();
