@@ -178,6 +178,16 @@ button.small{padding:6px 10px;font-size:13px}
 .pcard .evo{font-size:13px;font-weight:600} .evo.up{color:var(--ok)} .evo.down{color:var(--bad)}
 .pcard .lv{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;font-variant-numeric:tabular-nums}
 .pcard .lv span{background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:3px 8px}
+.ptrow{background:var(--sunk);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.ptrow.cur{outline:2px solid var(--accent)}
+.ptrow .top{display:flex;align-items:center;gap:8px}
+.ptrow .top .k{font-family:var(--display);font-weight:700;font-size:18px;min-width:28px}
+.ptrow .top input{width:96px;flex:0 0 auto}
+.ptrow .top .del{margin-left:auto;padding:6px 10px}
+.ptrow .res{font-size:14px;font-variant-numeric:tabular-nums}
+.ptrow .res b{font-size:18px}
+.ptrow .acts{display:flex;gap:6px;flex-wrap:wrap}
+.ptrow .acts>*{padding:7px 10px;font-size:13px}
 .ptab{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
 .ptab th,.ptab td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
 .ptab th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
@@ -218,7 +228,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div><h1>Vitesse de barre</h1>
     <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
-  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form perf">
+  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form perf ptest">
     <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
     <h1 id="viewTitle"></h1>
   </nav>
@@ -226,6 +236,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
   <div class="tiles" data-v="home">
     <button type="button" class="tile main" id="tSess"><b id="tSessT">Commencer une séance</b><span id="tSessS">Exercice, séries, charge et perte de vitesse</span></button>
     <button type="button" class="tile form" id="tForm"><b>Forme du jour</b><span id="tFormS">Test de 3 squats sautés</span></button>
+    <button type="button" class="tile" id="tPtest"><b>Profil charge-vitesse</b><span id="tPtestS">Test charge par charge et 1RM</span></button>
     <button type="button" class="tile" id="tQuick"><b>Mesure rapide</b><span>Une série isolée, en direct ou en vidéo</span></button>
     <button type="button" class="tile" id="tHist"><b>Séries enregistrées</b><span id="tHistS">Revoir ou supprimer vos séries</span></button>
     <button type="button" class="tile" id="tProf"><b>Mes performances</b><span id="tProfS">1RM estimés et profil charge-vitesse</span></button>
@@ -253,6 +264,24 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <p class="note" style="margin:6px 0 0">Bande verte : votre normale (moyenne de vos 10 derniers tests) jusqu'à −5 %. Orange : −5 à −10 %. En dessous : rouge.</p>
     </div>
     <div class="hist" id="fmList"></div>
+  </section>
+
+  <section class="card" id="ptCard" data-v="ptest" aria-labelledby="t-pt">
+    <h2 id="t-pt" hidden>Profil charge-vitesse</h2>
+    <div class="grid2">
+      <label class="field"><span class="lbl">Exercice</span><select id="ptExo"></select></label>
+      <label class="field"><span class="lbl">Vitesse au 1RM (m/s)</span><input id="ptMvt" type="number" inputmode="decimal" min="0.05" max="1.5" step="0.01"></label>
+    </div>
+    <p class="note" style="margin:0">Une série par charge, de la plus légère à la plus lourde (4 à 6 charges, 2 à 3 répétitions le plus vite possible). Pour chaque charge : filmez en direct, filmez ou importez une vidéo.</p>
+    <div class="col" id="ptRows"></div>
+    <div class="row"><button type="button" id="ptAdd">+ Ajouter une série</button><button type="button" id="ptReset">Nouveau test</button></div>
+    <div class="actions" style="margin:0"><button type="button" class="camSel">Caméra : arrière</button></div>
+    <div id="ptResult" hidden>
+      <div class="sum" id="ptSum" style="grid-template-columns:repeat(2,1fr)"></div>
+      <p class="warnbox" id="ptMsg" hidden></p>
+      <div class="lbl" style="margin:10px 0 6px">Vitesse selon la charge</div>
+      <canvas class="chart" id="chartT" width="680" height="380"></canvas>
+    </div>
   </section>
 
   <section class="card" id="sessCard" data-v="sess" aria-labelledby="t-sess">
@@ -316,7 +345,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </div>
   </section>
 
-  <section class="card" id="resCard" data-v="sess quick hist form" hidden aria-labelledby="t-res">
+  <section class="card" id="resCard" data-v="sess quick hist form ptest" hidden aria-labelledby="t-res">
     <button type="button" id="bResBack" class="linkbtn" hidden>‹ Toutes les séries</button>
     <div class="row" style="justify-content:space-between">
       <h2 id="t-res" style="flex:0 1 auto">Résultats</h2>
@@ -1178,6 +1207,7 @@ function finishSet(mpp, origin){
   try{ storeHistory(res); }catch(e){ reportErr(e); }
   if(origin==="direct") Promise.resolve(video).then(b=>{ if(b && lastResult===res){ res.videoBlob=b; $("bSaveVid").hidden=false; } });
   if(view==="form"){ formDone(res, video); return; }
+  if(view==="ptest"){ try{ ptestDone(res); }catch(e){ reportErr(e); } return; }
   if(view==="sess" && S.sess && !S.sess.over){
     const k=S.sess.done.length+1, snap=JSON.parse(JSON.stringify(S.sess));
     addSetToSess(res);
@@ -1544,7 +1574,7 @@ function storeHistory(res){
   const n=res.t.length, step=Math.max(1,Math.ceil(n/400)), t=[], v=[];
   for(let i=0;i<n;i+=step){ t.push(+res.t[i].toFixed(2)); v.push(+res.v[i].toFixed(3)); }
   S.history.unshift({id:"h"+res.date+Math.random().toString(36).slice(2,6), date:res.date, exo:res.exo, load:res.load, origin:res.origin,
-    sess: view==="form" ? "Forme du jour" : view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
+    sess: view==="ptest" ? "Test de profil" : view==="form" ? "Forme du jour" : view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
     reps:res.reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+r.t0.toFixed(2),t1:+r.t1.toFixed(2)})), t, v});
   S.history=S.history.slice(0,200); save(); renderHistory();
 }
@@ -1647,8 +1677,8 @@ function renderProfile(){
     }
   }
 }
-function drawProfile(pts, fit, mvt){
-  const c=$("chartL"), g=c.getContext("2d"), W=c.width, H=c.height; g.clearRect(0,0,W,H);
+function drawProfile(pts, fit, mvt, cid){
+  const c=$(cid||"chartL"), g=c.getContext("2d"), W=c.width, H=c.height; g.clearRect(0,0,W,H);
   if(!pts.length) return;
   const fg=css("--fg"), mu=css("--muted"), li=css("--line"), ac=css("--accent"), bad=css("--bad");
   const L=62,R=18,T=20,B=48;
@@ -1795,14 +1825,93 @@ function renderPerf(){
   }
 }
 
+/* ---------- Test de profil charge-vitesse guidé : une série par charge, 1RM sur les séries du test ---------- */
+let ptStash=null, ptCur=-1;
+function ptState(){
+  if(!S.ptest || !Array.isArray(S.ptest.rows)) S.ptest={exo:S.exo||"squat", rows:[{load:""},{load:""},{load:""},{load:""}], start:Date.now()};
+  return S.ptest;
+}
+function ptestEnter(){
+  const P=ptState();
+  if(!ptStash) ptStash={exo:S.exo, load:S.load};
+  const sel=$("ptExo"); if(!sel.options.length) fillExos(sel);
+  if(!EXOS[P.exo]) P.exo="squat";
+  sel.value=P.exo; S.exo=P.exo;
+  renderPtest();
+}
+function ptestLeave(){ if(ptStash){ S.exo=ptStash.exo; S.load=ptStash.load; ptStash=null; save(); } ptCur=-1; }
+const ptMvt=()=>pf((S.prof?.mvt||{})[S.ptest.exo] ?? EXOS[S.ptest.exo]?.mvt);
+function renderPtest(){
+  const P=ptState(), box=$("ptRows"); box.textContent="";
+  $("ptMvt").value = (S.prof?.mvt||{})[P.exo] ?? EXOS[P.exo]?.mvt ?? "";
+  const lim=pf(S.vloss);
+  P.rows.forEach((r,i)=>{
+    const el=document.createElement("div"); el.className="ptrow"+(i===ptCur?" cur":"");
+    const d=r.done;
+    const res = d ? (d.n ? `<div class="res">Meilleure <b>${num(d.v)}</b> m/s · ${d.n} rép. · amplitude ${Math.round(d.rom*100)} cm · <span class="${isFinite(lim)&&lim>0&&d.loss>=lim?"lossbad":"lossok"}">perte ${Math.round(d.loss)} %</span></div>`
+                        : `<div class="res lossbad">Aucune répétition détectée : refaites la mesure.</div>`) : "";
+    el.innerHTML=`<div class="top"><span class="k">S${i+1}</span><input type="number" inputmode="decimal" min="0" step="2.5" placeholder="charge" value="${r.load??""}" aria-label="Charge de la série ${i+1} (kg)"><span class="sub">kg</span><button type="button" class="del" aria-label="Enlever la série ${i+1}">✕</button></div>
+      ${res}
+      <div class="acts"><button type="button" class="primary" data-a="live">${d?"Refaire en direct":"En direct"}</button><label class="btn">Filmer<input type="file" accept="video/*" data-a="cam"></label><label class="btn">Importer<input type="file" accept="video/*" data-a="lib"></label></div>`;
+    const inp=el.querySelector("input[type=number]");
+    inp.oninput=()=>{ r.load=inp.value; save(); renderPtResult(); };
+    el.querySelector(".del").onclick=()=>{ if(P.rows.length<=1) return; P.rows.splice(i,1); save(); renderPtest(); };
+    const ready=()=>{ if(!(pf(r.load)>0)){ inp.focus(); say("Indique d'abord la charge de cette série.", true); return false; } ptCur=i; S.exo=P.exo; S.load=String(r.load); return true; };
+    el.querySelector('[data-a=live]').onclick=()=>{ if(ready()) $("bLive").click(); };
+    for(const a of ["cam","lib"]){ const f=el.querySelector(`[data-a=${a}]`); if(a==="cam") f.setAttribute("capture", S.facing==="user"?"user":"environment");
+      f.onclick=e=>{ if(!ready()) e.preventDefault(); else if(a==="cam") f.setAttribute("capture", S.facing==="user"?"user":"environment"); };
+      f.onchange=e=>{ loadFile(e.target.files[0]); e.target.value=""; }; }
+    box.appendChild(el);
+  });
+  renderPtResult();
+}
+function ptPoints(){
+  return ptState().rows.filter(r=>r.done?.n && pf(r.load)>0).map(r=>({load:pf(r.load), v:r.done.v})).sort((a,b)=>a.load-b.load);
+}
+function renderPtResult(){
+  const pts=ptPoints(), mvt=ptMvt(), fit=fitProfile(pts, mvt);
+  const ok = fit && fit.b<0 && isFinite(fit.rm) && fit.rm>0;
+  $("ptResult").hidden = !pts.length;
+  if(!pts.length) return;
+  const sum=$("ptSum"); sum.textContent="";
+  const cells=[["1RM approximatif", ok? Math.round(fit.rm)+" kg" : "–"],["Fiabilité (R²)", fit? num(fit.r2) : "–"],["Charges mesurées", String(pts.length)],["Perte par 10 kg", ok? num(-fit.b*10)+" m/s" : "–"]];
+  for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
+  const msg=[];
+  if(EXOS[ptState().exo]?.cat==="Haltérophilie") msg.push("Pour l'haltérophilie, le 1RM estimé par la vitesse est peu fiable.");
+  if(pts.length<2) msg.push("Mesurez au moins une autre charge pour calculer le 1RM.");
+  else if(!ok) msg.push("La vitesse ne baisse pas avec la charge : vérifiez les charges saisies.");
+  else { if(pts.length<4) msg.push("Estimation indicative : 4 charges ou plus donnent un résultat plus fiable.");
+    if(fit.r2<0.9) msg.push("Points dispersés : refaites la série qui s'écarte de la droite.");
+    if(pts[pts.length-1].load < 0.7*fit.rm) msg.push("Ajoutez une charge plus lourde (vers 80 % du 1RM estimé, soit environ "+(Math.round(0.8*fit.rm/2.5)*2.5)+" kg)."); }
+  $("ptMsg").hidden=!msg.length; $("ptMsg").textContent=msg.join(" ");
+  drawProfile(pts, ok? fit : null, mvt, "chartT");
+}
+function ptestDone(res){
+  const P=ptState(), r=P.rows[ptCur]; if(!r) return;
+  const vals=res.reps.map(x=>x.mcv);
+  r.done = vals.length ? {v:+Math.max(...vals).toFixed(3), n:vals.length, rom:res.reps.reduce((a,x)=>a+x.rom,0)/vals.length, loss:lossAt(vals, vals.length-1), date:res.date} : {n:0, date:res.date};
+  const done=ptCur; ptCur=-1; save(); renderPtest();
+  const fit=fitProfile(ptPoints(), ptMvt());
+  let txt = vals.length ? `Série ${done+1}, ${r.load} kilos : meilleure ${spokenNum(r.done.v)}.` : "Aucune répétition détectée.";
+  if(fit && fit.b<0 && isFinite(fit.rm)) txt += ` 1RM estimé : ${Math.round(fit.rm)} kilos.`;
+  if(done===P.rows.length-1 && vals.length){ P.rows.push({load:String(pf(r.load)+(EXOS[P.exo]?.cat==="Haut du corps"?5:10))}); save(); renderPtest(); }
+  say(txt, true);
+}
+$("ptExo").onchange=e=>{ const P=ptState(); if(P.rows.some(r=>r.done) && !confirm("Changer d'exercice efface les séries de ce test. Continuer ?")){ e.target.value=P.exo; return; }
+  P.exo=e.target.value; P.rows=P.rows.map(r=>({load:r.load})); S.exo=P.exo; save(); renderPtest(); };
+$("ptMvt").addEventListener("change", e=>{ const v=pf(e.target.value); S.prof ||= {exo:S.exo, days:"90", mvt:{}}; if(v>0) S.prof.mvt[S.ptest.exo]=v; else delete S.prof.mvt[S.ptest.exo]; save(); renderPtResult(); });
+$("ptAdd").onclick=()=>{ const P=ptState(), last=P.rows[P.rows.length-1]; P.rows.push({load: pf(last?.load)>0 ? String(pf(last.load)+(EXOS[P.exo]?.cat==="Haut du corps"?5:10)) : ""}); save(); renderPtest(); };
+$("ptReset").onclick=()=>{ if(ptState().rows.some(r=>r.done) && !confirm("Effacer ce test et en commencer un nouveau ? Les séries restent dans Séries enregistrées.")) return; const exo=S.ptest.exo; S.ptest=null; ptState().exo=exo; save(); renderPtest(); };
+
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
-const TITLES={perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
+const TITLES={ptest:"Profil charge-vitesse", perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
   // chaque étape est protégée : une erreur ne doit jamais empêcher de changer de page
   const T=f=>{ try{ f(); }catch(e){ reportErr(e); } };
   if(running || src) T(()=>{ running=false; recStop(); closeStage(); });
   if(view==="form" && v!=="form") T(formLeave);
+  if(view==="ptest" && v!=="ptest") T(ptestLeave);
   view=v;
   document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
   $("viewTitle").textContent=TITLES[v]||"";
@@ -1813,6 +1922,7 @@ function go(v){
   if(v==="profile") T(renderProfile);
   if(v==="perf") T(renderPerf);
   if(v==="form") T(formEnter);
+  if(v==="ptest") T(ptestEnter);
   T(renderHome);
   scrollTo({top:0});
   try{ if(history.state?.v!==v) history[v==="home"?"replaceState":"pushState"]({v},""); }catch(e){}
@@ -1833,6 +1943,7 @@ $("tHist").onclick=()=>go("hist");
 $("tSet").onclick=()=>go("settings");
 $("tProf").onclick=()=>go("perf");
 $("tForm").onclick=()=>go("form");
+$("tPtest").onclick=()=>go("ptest");
 $("bHome").onclick=()=>go("home");
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
 $("qLoss").addEventListener("input", e=>{ S.vloss=e.target.value; $("vloss").value=S.vloss; save(); });
