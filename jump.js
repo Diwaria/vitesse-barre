@@ -67,22 +67,30 @@
       const heels=[29,30].filter(k=>a[k*3+2]>0.3).map(k=>a[k*3+1]);
       const pts=toes.length? toes : heels; if(pts.length) fy[i]=Math.max(...pts);
       const l=[[23,27],[24,28]].map(([h,k])=>Math.hypot(a[h*3]-a[k*3], (a[h*3+1]-a[k*3+1])*J.h/J.w)).filter(isFinite); if(l.length) legs.push(Math.max(...l)); }
-    // trous comblés
-    for(let i=0;i<n;i++) if(!isFinite(fy[i])){ let j=i; while(j<n && !isFinite(fy[j])) j++; const a=i>0? fy[i-1]:fy[j], b=j<n? fy[j]:a; for(let k=i;k<j;k++) fy[k]= isFinite(a)&&isFinite(b)? a+(b-a)*(k-i+1)/(j-i+1) : (isFinite(a)?a:b); i=j; }
+    // petits trous comblés (≤ 6 images) ; les grands restent vides (corps hors champ)
+    for(let i=0;i<n;i++) if(!isFinite(fy[i])){ let j=i; while(j<n && !isFinite(fy[j])) j++; if(i>0 && j<n && j-i<=6){ const a=fy[i-1], b=fy[j]; for(let k=i;k<j;k++) fy[k]=a+(b-a)*(k-i+1)/(j-i+1); } i=j; }
     if(!fy.some(isFinite)) return null;
     const sorted=fy.filter(isFinite).slice().sort((p,q)=>p-q), ground=sorted[Math.floor(sorted.length*0.6)];
+    // sol local (la personne peut s'approcher / s'éloigner du téléphone entre deux sauts)
+    const W=Math.max(60, Math.round(n*0.08)), gl=new Array(n).fill(ground);
+    for(let i=0;i<n;i+=5){ const w=fy.slice(Math.max(0,i-W), Math.min(n,i+W)).filter(isFinite).sort((p,q)=>p-q); const g=w.length>20? w[Math.floor(w.length*0.6)] : ground; for(let k=i;k<Math.min(n,i+5);k++) gl[k]=g; }
     legs.sort((p,q)=>p-q); const L=legs.length? legs[legs.length>>1] : 0.25;
     const thr=0.05*L, edge=0.015*L;
+    // trou en plein vol (corps mal vu au sommet) : pieds en l'air des deux côtés → on relie
+    for(let i=1;i<n;i++) if(!isFinite(fy[i]) && isFinite(fy[i-1])){ let j=i; while(j<n && !isFinite(fy[j])) j++;
+      if(j<n && j-i<=60 && fy[i-1]<gl[i-1]-thr && fy[j]<gl[j]-thr){ const a=fy[i-1], b=fy[j]; for(let k=i;k<j;k++) fy[k]=a+(b-a)*(k-i+1)/(j-i+1); } i=j; }
     const med=arr=>{ const q=arr.filter(isFinite).sort((x,y)=>x-y); return q.length? q[q.length>>1] : NaN; };
     // toutes les phases en l'air (plusieurs sauts possibles dans la vidéo)
     const runs=[];
-    for(let i=0;i<n;i++){ if(!(fy[i]<ground-thr)) continue; let j=i; while(j+1<n && fy[j+1]<ground-thr) j++; runs.push([i,j]); i=j; }
+    for(let i=0;i<n;i++){ if(!(fy[i]<gl[i]-thr)) continue; let j=i; while(j+1<n && fy[j+1]<gl[j+1]-thr) j++; runs.push([i,j]); i=j; }
     const longest=runs.reduce((m,r)=>Math.max(m,r[1]-r[0]+1),0);
     const jumps=[];
     for(const best of runs){
       const span=best[1]-best[0]+1; if(span<Math.max(4, longest*0.4)) continue;   // bruit / petits pas
-      let to=best[0]; while(to>0 && fy[to-1]<ground-edge) to--;
-      let ld=best[1]+1; while(ld<n && fy[ld]<ground-edge) ld++;
+      // il faut voir les pieds au sol juste avant et juste après
+      if(!(best[0]>0 && isFinite(fy[best[0]-1])) || !(best[1]+1<n && isFinite(fy[best[1]+1]))) continue;
+      let to=best[0]; while(to>0 && fy[to-1]<gl[to-1]-edge) to--;
+      let ld=best[1]+1; while(ld<n && fy[ld]<gl[ld]-edge) ld++;
       ld=Math.min(ld,n-1);
       // affinage : parabole sur la trajectoire en l'air, coupée avec le niveau du sol juste avant / juste après
       try{
@@ -103,9 +111,12 @@
           }
         }
       }catch(e){}
-      if(ld>to) jumps.push({to, ld});
+      let top=Infinity; for(let i=best[0];i<=best[1];i++) if(fy[i]<top) top=fy[i];
+      const rise=Math.max(0, gl[best[0]]-top) * (J.h/J.w) / L;   // montée des pieds, en longueurs de jambe
+      if(ld>to && !jumps.some(x=>x.to===to||x.ld===ld)) jumps.push({to, ld, rise});
     }
-    return {fy, ground, L, jumps};
+    const maxRise=Math.max(0,...jumps.map(x=>x.rise));
+    return {fy, ground, L, jumps: jumps.filter(x=>x.rise>=0.4*maxRise)};
   }
 
   function drawSkel(a){
@@ -113,6 +124,13 @@
     jctx.lineWidth=lw; jctx.strokeStyle="rgba(53,224,138,.9)";
     for(const [p,q] of BONES){ if(a[p*3+2]<0.3||a[q*3+2]<0.3) continue; jctx.beginPath(); jctx.moveTo(a[p*3]*W,a[p*3+1]*H); jctx.lineTo(a[q*3]*W,a[q*3+1]*H); jctx.stroke(); }
     for(let k=0;k<33;k++){ if(k>0&&k<11) continue; if(a[k*3+2]<0.3) continue; jctx.fillStyle= (k===31||k===32)? "#FF6B35" : "#F5F7FA"; jctx.beginPath(); jctx.arc(a[k*3]*W,a[k*3+1]*H,lw*1.4,0,7); jctx.fill(); }
+  }
+  // ralenti iPhone ré-encodé en 30 i/s : 120 ou 240 ? On garde la cadence dont la hauteur (temps de vol)
+  // colle le mieux à la montée des pieds vue dans l'image (jambe ≈ 0,85 m) ; à défaut, durée de vol plausible.
+  function sloFps(x){
+    const F=x.ld-x.to, h=f=>G*(F/f)*(F/f)/8, hd=(x.rise||0)*0.85;
+    if(hd>0.05) return Math.abs(Math.log(h(120)/hd)) <= Math.abs(Math.log(h(240)/hd)) ? 120 : 240;
+    return F/120<=0.75 ? 120 : 240;
   }
   function captureFps(){
     const sel=$("jFps").value;
@@ -146,13 +164,13 @@
       <div class="stat"><b>${Math.round(r.tf*1000)} ms</b><span>Temps de vol</span></div>
       <div class="stat"><b>${r.fr}</b><span>Images en l'air</span></div>
       <div class="stat"><b>${Math.round(r.fps)} i/s</b><span>Cadence de tournage${slow?" (ralenti détecté)":""}</span></div></div>
-      ${slow && J.guess? `<div class="warnbox" style="margin-top:8px">La vidéo ne dit pas à quelle cadence le ralenti a été filmé. Vérifiez sur l'iPhone (Réglages › Appareil photo › Enregistrer au ralenti) :
+      ${slow && J.guess? `<div class="warnbox" style="margin-top:8px">Ralenti exporté par l'iPhone : la cadence réelle n'est plus dans le fichier. L'app a choisi <b>${J.autoPick} i/s</b> d'après la hauteur à laquelle montent les pieds. Si la hauteur vous paraît fausse, changez :
         <div class="seg" style="margin-top:8px">${[120,240].map(f=>`<button type="button" data-slo="${f}" aria-pressed="${J.autoFps===f}">${f} i/s</button>`).join("")}</div>
-        <span class="note">Votre choix est mémorisé pour les prochaines vidéos.</span></div>`:""}
+</div>`:""}
       ${r.fps<60? `<p class="note">Vidéo à ${Math.round(r.fps)} images/s : précision d'environ ±${Math.round(G*r.tf/4/r.fps*100*10)/10} cm. Filmez en ralenti pour plus de précision.</p>`:""}`;
     $("jSave").hidden=false;
     box.querySelectorAll("[data-jsel]").forEach(b=>b.onclick=()=>{ J.sel=+b.dataset.jsel; J.to=J.jumps[J.sel].to; J.ld=J.jumps[J.sel].ld; $("jSave").textContent="Enregistrer le saut"; renderRes(); show(J.to); });
-    box.querySelectorAll("[data-slo]").forEach(b=>b.onclick=()=>{ S.jumpSlo=+b.dataset.slo; save(); J.autoFps=S.jumpSlo; $("jFpsAuto").textContent=`Auto (${J.autoFps} i/s, ralenti)`; renderRes(); });
+    box.querySelectorAll("[data-slo]").forEach(b=>b.onclick=()=>{ J.autoFps=+b.dataset.slo; $("jFpsAuto").textContent=`Auto (${J.autoFps} i/s, ralenti)`; renderRes(); });
   }
 
   async function analyze(file){
@@ -175,10 +193,12 @@
       const d=detect(frames); J.jumps=d?.jumps||[]; J.sel=J.jumps.length? J.jumps.reduce((b,x,i,a)=>x.ld-x.to>a[b].ld-a[b].to? i : b, 0) : -1; J.to=J.sel>=0? J.jumps[J.sel].to : -1; J.ld=J.sel>=0? J.jumps[J.sel].ld : -1;
       // ralenti étiré (iPhone) : temps de vol impossible en temps réel → on suppose 240 ou 120 i/s
       J.autoFps=J.fpsDet; J.guess=false;
-      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps = S.jumpSlo || (F/120<=0.75 ? 120 : 240); } }   // un CMJ dure 0,3 à 0,75 s en l'air : 120 si plausible, sinon 240
+      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps=J.autoPick=sloFps(J.jumps[J.sel]); } }
       $("jFpsAuto").textContent=`Auto (${Math.round(J.autoFps)} i/s${J.autoFps!==J.fpsDet?", ralenti":""})`;
       $("jScrub").max=frames.length-1; $("jTools").hidden=false; $("jProg").hidden=true;
-      setMsg(J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.", J.to<0);
+      const cover=frames.filter(f=>f.p).length/frames.length;
+      const cadre= cover<0.7? ` Le corps n'est reconnu que sur ${Math.round(cover*100)} % des images : cadrez le corps entier, de la tête aux pieds, téléphone fixe.` : "";
+      setMsg((J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.")+cadre, J.to<0 || !!cadre);
       renderRes(); await show(J.to>=0? J.to : 0);
       if(J.to>=0){ const r=compute(); if(r) say(`Hauteur de saut : ${(r.h*100).toFixed(1).replace(".", " virgule ")} centimètres.`, true); }
     }catch(e){ console.warn(e); setMsg("Analyse impossible : "+(e.message||e)+". Vérifiez la connexion internet (le modèle se télécharge la première fois).", true); reportErr?.(e); }
