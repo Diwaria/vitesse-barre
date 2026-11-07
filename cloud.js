@@ -61,6 +61,13 @@
     }
   };
 
+  window.Cloud.onJump = async (j)=>{
+    if(!user || !profile?.team_id) return;
+    const id=(crypto.randomUUID && crypto.randomUUID()) || ("x"+Date.now()+Math.random()).replace(".","");
+    const row={ id, player_id:user.id, team_id:profile.team_id, planned_id:null, session_key:"jump-"+new Date(j.date).toISOString().slice(0,10), exo:j.type, load_kg:null, set_index:1, metric:"h",
+      vloss_target:null, reps:[{h:j.h, tf:j.tf, fps:j.fps}], best:+(j.h*100).toFixed(1), last:null, loss:null, performed_at:new Date(j.date).toISOString() };
+    const q=qGet(); q.push(row); qSet(q); await flushQueue();
+  };
   async function uploadVideo(setRow){
     const blob = await vGet(setRow.id);
     if(!blob) return "absente";

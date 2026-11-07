@@ -9,7 +9,7 @@
   const exName = k => EXOS[k]?.name || k;
   if(!cfg.url || !cfg.key || !window.supabase){ main.innerHTML = `<p class="note">L'espace coach n'est pas encore relié au serveur.</p>`; return; }
   const sb = window.supabase.createClient(cfg.url, cfg.key);
-  let user=null, profile=null, team=null, players=[], sets=[], formes=[], perfSets=[], perfPlayer="", sheetPlayer="", plans=[], tab="forme", filterPlayer="", weeks=6;
+  let user=null, profile=null, team=null, players=[], sets=[], formes=[], jumps=[], perfSets=[], perfPlayer="", sheetPlayer="", plans=[], tab="forme", filterPlayer="", weeks=6;
 
   function exOptions(sel){
     const cats={}; for(const [k,e] of Object.entries(EXOS)) (cats[e.cat] ||= []).push([k,e]);
@@ -38,7 +38,8 @@
     ]);
     perfSets=(pf.data||[]).filter(x=>!String(x.session_key).startsWith("forme-") && x.load_kg>0);
     players=(p.data||[]).filter(x=>x.role==="player"); plans=pl.data||[];
-    sets=(s.data||[]).filter(x=>!String(x.session_key).startsWith("forme-"));
+    sets=(s.data||[]).filter(x=>!/^(forme|jump)-/.test(String(x.session_key)));
+    jumps=(s.data||[]).filter(x=>String(x.session_key).startsWith("jump-"));
     formes=fm.data||[];
   }
 
@@ -248,9 +249,14 @@
     const mine=sets.filter(s=>s.player_id===pid).slice(0,25);
     const rows = mine.length ? `<div class="tblwrap"><table class="tbl"><thead><tr><th>Date</th><th>Type</th><th>Exercice</th><th>Charge</th><th>Rép.</th><th>Meilleure</th><th>Perte</th><th>Amplitude</th></tr></thead><tbody>${mine.map(s=>{ const reps=s.reps||[]; const rom=reps.length? reps.reduce((a,r)=>a+(r.rom||0),0)/reps.length : null;
         return `<tr><td>${fmtDay(s.performed_at)}</td><td>${kind(s.session_key)}</td><td>${esc(exName(s.exo))}</td><td>${s.load_kg!=null? String(s.load_kg).replace(".",",")+" kg":"–"}</td><td>${reps.length}</td><td>${n2(s.best)}</td><td>${s.loss!=null? Math.round(s.loss)+" %":"–"}</td><td>${rom!=null? Math.round(rom*100)+" cm":"–"}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="note">Aucune série reçue sur la période.</p>`;
+    const JN={cmj:"CMJ", sj:"Squat jump"}, mj=jumps.filter(s=>s.player_id===pid);
+    const jbest=Object.keys(JN).map(k=>{ const l=mj.filter(s=>s.exo===k); return l.length? `${JN[k]} : <b>${Math.max(...l.map(s=>+s.best)).toFixed(1).replace(".",",")} cm</b> (record période)` : ""; }).filter(Boolean).join(" · ");
+    const jrows = mj.length ? `<p class="m">${jbest}</p><div class="tblwrap"><table class="tbl"><thead><tr><th>Date</th><th>Test</th><th>Hauteur</th><th>Temps de vol</th><th>Cadence</th></tr></thead><tbody>${mj.slice(0,15).map(s=>{ const r=(s.reps||[])[0]||{};
+        return `<tr><td>${fmtDay(s.performed_at)}</td><td>${JN[s.exo]||esc(s.exo)}</td><td><b>${(+s.best).toFixed(1).replace(".",",")} cm</b></td><td>${r.tf? Math.round(r.tf*1000)+" ms":"–"}</td><td>${r.fps? Math.round(r.fps)+" i/s":"–"}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="note">Aucun saut reçu sur la période.</p>`;
     el.innerHTML=`<h3 style="margin:0">${esc(p.name||"Sans nom")}</h3>
       <div class="lbl">Forme du jour</div>${forme}
       <div class="lbl">Performances (1RM estimés)</div>${perf}
+      <div class="lbl">Tests de saut</div>${jrows}
       <div class="lbl">Dernières séries</div>${rows}`;
   }
 

@@ -234,7 +234,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div><h1>Vitesse de barre</h1>
     <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
-  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form perf ptest">
+  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form perf ptest jump">
     <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
     <h1 id="viewTitle"></h1>
   </nav>
@@ -243,6 +243,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <button type="button" class="tile main" id="tSess"><b id="tSessT">Commencer une séance</b><span id="tSessS">Exercice, séries, charge et perte de vitesse</span></button>
     <button type="button" class="tile form" id="tForm"><b>Forme du jour</b><span id="tFormS">Test de 3 squats sautés</span></button>
     <button type="button" class="tile" id="tPtest"><b>Profil charge-vitesse</b><span id="tPtestS">Test charge par charge et 1RM</span></button>
+    <button type="button" class="tile" id="tJump"><b>Tests de saut</b><span>CMJ, squat jump · hauteur par vidéo</span></button>
     <button type="button" class="tile" id="tQuick"><b>Mesure rapide</b><span>Une série isolée, en direct ou en vidéo</span></button>
     <button type="button" class="tile" id="tHist"><b>Séries enregistrées</b><span id="tHistS">Revoir ou supprimer vos séries</span></button>
     <button type="button" class="tile" id="tProf"><b>Mes performances</b><span id="tProfS">1RM estimés et profil charge-vitesse</span></button>
@@ -270,6 +271,47 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <p class="note" style="margin:6px 0 0">Bande verte : votre normale (moyenne de vos 10 derniers tests) jusqu'à −5 %. Orange : −5 à −10 %. En dessous : rouge.</p>
     </div>
     <div class="hist" id="fmList"></div>
+  </section>
+
+  <section class="card" id="jumpCard" data-v="jump" aria-labelledby="t-jump">
+    <h2 id="t-jump" hidden>Tests de saut</h2>
+    <div class="seg" role="group" aria-label="Type de saut" id="jType" style="align-self:flex-start">
+      <button type="button" data-t="cmj" aria-pressed="true">CMJ</button><button type="button" data-t="sj" aria-pressed="false">Squat jump</button>
+    </div>
+    <label class="field"><span class="lbl">Cadence de tournage</span><select id="jFps"><option value="auto" id="jFpsAuto">Auto</option><option value="30">30 images/s</option><option value="60">60 images/s</option><option value="120">Ralenti 120 images/s</option><option value="240">Ralenti 240 images/s</option></select></label>
+    <div class="actions" style="margin:0">
+      <label class="btn primary">Importer une vidéo (ralenti conseillé)<input id="jLib" type="file" accept="video/*"></label>
+      <label class="btn">Filmer<input id="jCam" type="file" accept="video/*" capture="environment"></label>
+    </div>
+    <details>
+      <summary>Comment filmer un saut</summary>
+      <ol>
+        <li>Pour la précision, filmez avec l'app Appareil photo en mode <b>Ralenti</b> (240 i/s si possible), puis importez la vidéo ici.</li>
+        <li>Téléphone fixe (trépied ou posé), à hauteur des genoux, à 2–3 m, de profil ou de face. Le corps entier visible, <b>pieds compris</b>, pendant tout le saut.</li>
+        <li>CMJ : mains sur les hanches, flexion rapide puis saut le plus haut possible ; réception sur la pointe des pieds, jambes tendues (ne pas replier les jambes en l'air).</li>
+        <li>Squat jump : partir immobile en position fléchie, sans contre-mouvement.</li>
+      </ol>
+    </details>
+    <p class="note" id="jMsg" hidden></p>
+    <progress id="jProg" max="1" value="0" hidden></progress>
+    <div id="jWork" class="col" hidden>
+      <div class="stage"><canvas id="jcv" width="360" height="640"></canvas></div>
+      <div id="jTools" class="col" hidden>
+        <input id="jScrub" type="range" min="0" max="1" value="0" aria-label="Image">
+        <div class="row" style="justify-content:space-between;align-items:center"><button type="button" id="jPrev" class="small">◂ Image</button><span class="sub" id="jFrame"></span><button type="button" id="jNext" class="small">Image ▸</button></div>
+        <div class="grid2">
+          <button type="button" id="jGoTo" class="small">Aller au décollage</button><button type="button" id="jGoLd" class="small">Aller à la réception</button>
+          <button type="button" id="jSetTo" class="small">Décollage = cette image</button><button type="button" id="jSetLd" class="small">Réception = cette image</button>
+        </div>
+      </div>
+      <div id="jRes"></div>
+      <button type="button" class="primary big" id="jSave" hidden>Enregistrer le saut</button>
+    </div>
+    <div id="jHistWrap" hidden>
+      <div class="lbl" style="margin:8px 0 6px">Sauts enregistrés</div>
+      <p class="note" id="jBest" style="margin:0 0 6px"></p>
+      <div class="hist" id="jList"></div>
+    </div>
   </section>
 
   <section class="card" id="ptCard" data-v="ptest" aria-labelledby="t-pt">
@@ -1111,6 +1153,7 @@ async function decodeFile(file, t0, w, h, onImg, isStopped){
   // décalage éventuel entre le temps du fichier et celui du lecteur (liste d'édition)
   let off=0; try{ const el=mp4.getTrackById(tr.id).edts?.elst?.entries?.[0]; if(el && el.media_time>0) off=el.media_time/tr.timescale; }catch(e){}
   const draw=f=>{
+    if(work.width!==w||work.height!==h){ work.width=w; work.height=h; }
     wctx.save(); wctx.clearRect(0,0,w,h);
     if(ang===1){ wctx.translate(w,0); wctx.rotate(Math.PI/2); wctx.drawImage(f,0,0,h,w); }
     else if(ang===3){ wctx.translate(0,h); wctx.rotate(-Math.PI/2); wctx.drawImage(f,0,0,h,w); }
@@ -1970,13 +2013,14 @@ $("ptReset").onclick=()=>{ if(ptState().rows.some(r=>r.done) && !confirm("Efface
 
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
-const TITLES={ptest:"Profil charge-vitesse", perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
+const TITLES={jump:"Tests de saut", ptest:"Profil charge-vitesse", perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
   // chaque étape est protégée : une erreur ne doit jamais empêcher de changer de page
   const T=f=>{ try{ f(); }catch(e){ reportErr(e); } };
   if(running || src) T(()=>{ running=false; recStop(); closeStage(); });
   if(view==="form" && v!=="form") T(formLeave);
   if(view==="ptest" && v!=="ptest") T(ptestLeave);
+  if(view==="jump" && v!=="jump") T(()=>window.jumpLeave?.());
   view=v;
   document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
   $("viewTitle").textContent=TITLES[v]||"";
@@ -1988,6 +2032,7 @@ function go(v){
   if(v==="perf") T(renderPerf);
   if(v==="form") T(formEnter);
   if(v==="ptest") T(ptestEnter);
+  if(v==="jump") T(()=>window.jumpEnter?.());
   T(renderHome);
   scrollTo({top:0});
   try{ if(history.state?.v!==v) history[v==="home"?"replaceState":"pushState"]({v},""); }catch(e){}
@@ -2009,6 +2054,7 @@ $("tSet").onclick=()=>go("settings");
 $("tProf").onclick=()=>go("perf");
 $("tForm").onclick=()=>go("form");
 $("tPtest").onclick=()=>go("ptest");
+$("tJump").onclick=()=>go("jump");
 $("bHome").onclick=()=>go("home");
 $("qLoad").addEventListener("input", e=>{ S.load=e.target.value; $("load").value=S.load; save(); });
 $("qLoss").addEventListener("input", e=>{ S.vloss=e.target.value; $("vloss").value=S.vloss; save(); });
@@ -2018,6 +2064,7 @@ go("home");
 const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("change",()=>{ if(lastResult) renderResult(lastResult); });
 </script>
 
-<script src="cloud.js?v=7"></script>
+<script src="jump.js?v=1"></script>
+<script src="cloud.js?v=8"></script>
 </body>
 </html>
