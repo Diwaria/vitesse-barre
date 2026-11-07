@@ -73,33 +73,39 @@
     const sorted=fy.filter(isFinite).slice().sort((p,q)=>p-q), ground=sorted[Math.floor(sorted.length*0.6)];
     legs.sort((p,q)=>p-q); const L=legs.length? legs[legs.length>>1] : 0.25;
     const thr=0.05*L, edge=0.015*L;
-    let best=null;
-    for(let i=0;i<n;i++){ if(!(fy[i]<ground-thr)) continue; let j=i; while(j+1<n && fy[j+1]<ground-thr) j++; if(!best || j-i>best[1]-best[0]) best=[i,j]; i=j; }
-    if(!best) return {fy, ground, L, to:-1, ld:-1};
-    let to=best[0]; while(to>0 && fy[to-1]<ground-edge) to--;
-    let ld=best[1]+1; while(ld<n && fy[ld]<ground-edge) ld++;
-    ld=Math.min(ld,n-1);
-    // affinage : parabole sur la trajectoire en l'air, coupée avec le niveau du sol juste avant / juste après
-    try{
-      const med=arr=>{ const q=arr.filter(isFinite).sort((x,y)=>x-y); return q.length? q[q.length>>1] : NaN; };
-      const span=best[1]-best[0]+1, gap=Math.max(3, Math.round(span*0.15));
-      const g0=med(fy.slice(Math.max(0,to-gap*3), Math.max(0,to-1))), g1=med(fy.slice(ld+1, ld+gap*3));
-      if(span>=6 && isFinite(g0) && isFinite(g1)){
-        let S0=0,S1=0,S2=0,S3=0,S4=0,Y0=0,Y1=0,Y2=0;
-        for(let i=best[0];i<=best[1];i++){ const x=i-best[0], y=fy[i]; S0++; S1+=x; S2+=x*x; S3+=x*x*x; S4+=x*x*x*x; Y0+=y; Y1+=x*y; Y2+=x*x*y; }
-        const M=[[S4,S3,S2,Y2],[S3,S2,S1,Y1],[S2,S1,S0,Y0]];
-        for(let c=0;c<3;c++){ for(let r=c+1;r<3;r++){ const f=M[r][c]/M[c][c]; for(let k=c;k<4;k++) M[r][k]-=f*M[c][k]; } }
-        const C=M[2][3]/M[2][2], B=(M[1][3]-M[1][2]*C)/M[1][1], A=(M[0][3]-M[0][2]*C-M[0][1]*B)/M[0][0];
-        const root=(g,sg)=>{ const d=B*B-4*A*(C-g); return d>=0? (-B+sg*Math.sqrt(d))/(2*A) : NaN; };
-        const r0=best[0]+root(g0,-1), r1=best[0]+root(g1,1), tol=Math.max(2, Math.round(span*0.04));
-        if(A>0 && isFinite(r0) && isFinite(r1)){
-          const t2=Math.ceil(r0), l2=Math.ceil(r1);
-          if(Math.abs(t2-to)<=tol) to=t2;
-          if(Math.abs(l2-ld)<=tol) ld=Math.min(l2,n-1);
+    const med=arr=>{ const q=arr.filter(isFinite).sort((x,y)=>x-y); return q.length? q[q.length>>1] : NaN; };
+    // toutes les phases en l'air (plusieurs sauts possibles dans la vidéo)
+    const runs=[];
+    for(let i=0;i<n;i++){ if(!(fy[i]<ground-thr)) continue; let j=i; while(j+1<n && fy[j+1]<ground-thr) j++; runs.push([i,j]); i=j; }
+    const longest=runs.reduce((m,r)=>Math.max(m,r[1]-r[0]+1),0);
+    const jumps=[];
+    for(const best of runs){
+      const span=best[1]-best[0]+1; if(span<Math.max(4, longest*0.4)) continue;   // bruit / petits pas
+      let to=best[0]; while(to>0 && fy[to-1]<ground-edge) to--;
+      let ld=best[1]+1; while(ld<n && fy[ld]<ground-edge) ld++;
+      ld=Math.min(ld,n-1);
+      // affinage : parabole sur la trajectoire en l'air, coupée avec le niveau du sol juste avant / juste après
+      try{
+        const gap=Math.max(3, Math.round(span*0.15));
+        const g0=med(fy.slice(Math.max(0,to-gap*3), Math.max(0,to-1))), g1=med(fy.slice(ld+1, ld+gap*3));
+        if(span>=6 && isFinite(g0) && isFinite(g1)){
+          let S0=0,S1=0,S2=0,S3=0,S4=0,Y0=0,Y1=0,Y2=0;
+          for(let i=best[0];i<=best[1];i++){ const x=i-best[0], y=fy[i]; S0++; S1+=x; S2+=x*x; S3+=x*x*x; S4+=x*x*x*x; Y0+=y; Y1+=x*y; Y2+=x*x*y; }
+          const M=[[S4,S3,S2,Y2],[S3,S2,S1,Y1],[S2,S1,S0,Y0]];
+          for(let c=0;c<3;c++){ for(let r=c+1;r<3;r++){ const f=M[r][c]/M[c][c]; for(let k=c;k<4;k++) M[r][k]-=f*M[c][k]; } }
+          const C=M[2][3]/M[2][2], B=(M[1][3]-M[1][2]*C)/M[1][1], A=(M[0][3]-M[0][2]*C-M[0][1]*B)/M[0][0];
+          const root=(g,sg)=>{ const d=B*B-4*A*(C-g); return d>=0? (-B+sg*Math.sqrt(d))/(2*A) : NaN; };
+          const r0=best[0]+root(g0,-1), r1=best[0]+root(g1,1), tol=Math.max(2, Math.round(span*0.04));
+          if(A>0 && isFinite(r0) && isFinite(r1)){
+            const t2=Math.ceil(r0), l2=Math.ceil(r1);
+            if(Math.abs(t2-to)<=tol) to=t2;
+            if(Math.abs(l2-ld)<=tol) ld=Math.min(l2,n-1);
+          }
         }
-      }
-    }catch(e){}
-    return {fy, ground, L, to, ld};
+      }catch(e){}
+      if(ld>to) jumps.push({to, ld});
+    }
+    return {fy, ground, L, jumps};
   }
 
   function drawSkel(a){
@@ -132,7 +138,10 @@
     const r=compute(), box=$("jRes");
     if(!r){ box.innerHTML=`<p class="warnbox">Décollage ou réception non trouvés. Placez-vous sur l'image du décollage puis sur celle de la réception avec les boutons ci-dessous.</p>`; $("jSave").hidden=true; return; }
     const slow = $("jFps").value==="auto" && J.autoFps && J.autoFps!==J.fpsDet;
-    box.innerHTML=`<div class="sum" style="grid-template-columns:repeat(2,1fr)">
+    const fps=captureFps(), hOf=x=>{ const t=(x.ld-x.to)/fps; return G*t*t/8; };
+    const chips = J.jumps.length>1 ? `<div class="lbl" style="margin-top:4px">${J.jumps.length} sauts trouvés · meilleur ${(Math.max(...J.jumps.map(hOf))*100).toFixed(1).replace(".",",")} cm</div>
+      <div class="seg" style="flex-wrap:wrap;margin-bottom:8px">${J.jumps.map((x,i)=>`<button type="button" data-jsel="${i}" aria-pressed="${i===J.sel}">Saut ${i+1} : ${(hOf(x)*100).toFixed(1).replace(".",",")} cm</button>`).join("")}</div>` : "";
+    box.innerHTML=chips+`<div class="sum" style="grid-template-columns:repeat(2,1fr)">
       <div class="stat"><b>${(r.h*100).toFixed(1).replace(".",",")} cm</b><span>Hauteur de saut</span></div>
       <div class="stat"><b>${Math.round(r.tf*1000)} ms</b><span>Temps de vol</span></div>
       <div class="stat"><b>${r.fr}</b><span>Images en l'air</span></div>
@@ -142,13 +151,14 @@
         <span class="note">Votre choix est mémorisé pour les prochaines vidéos.</span></div>`:""}
       ${r.fps<60? `<p class="note">Vidéo à ${Math.round(r.fps)} images/s : précision d'environ ±${Math.round(G*r.tf/4/r.fps*100*10)/10} cm. Filmez en ralenti pour plus de précision.</p>`:""}`;
     $("jSave").hidden=false;
+    box.querySelectorAll("[data-jsel]").forEach(b=>b.onclick=()=>{ J.sel=+b.dataset.jsel; J.to=J.jumps[J.sel].to; J.ld=J.jumps[J.sel].ld; $("jSave").textContent="Enregistrer le saut"; renderRes(); show(J.to); });
     box.querySelectorAll("[data-slo]").forEach(b=>b.onclick=()=>{ S.jumpSlo=+b.dataset.slo; save(); J.autoFps=S.jumpSlo; $("jFpsAuto").textContent=`Auto (${J.autoFps} i/s, ralenti)`; renderRes(); });
   }
 
   async function analyze(file){
     if(!file) return;
     J.busy=false; await new Promise(r=>setTimeout(r,30));
-    J.file=file; J.busy=true; J.frames=[]; J.to=J.ld=-1;
+    J.file=file; J.busy=true; J.frames=[]; J.to=J.ld=-1; J.jumps=[]; J.sel=-1;
     $("jWork").hidden=false; $("jRes").innerHTML=""; $("jSave").hidden=true; $("jTools").hidden=true; $("jProg").hidden=false; $("jProg").value=0;
     $("jWork").scrollIntoView({behavior:"smooth",block:"start"});
     try{
@@ -162,10 +172,10 @@
       if(frames.length<10){ setMsg("Vidéo trop courte ou illisible.", true); return; }
       const ts=frames.map(f=>f.t); J.fpsDet=(frames.length-1)/Math.max(1e-3, ts[ts.length-1]-ts[0]);
       if(!frames.some(f=>f.p)){ setMsg("Aucun corps détecté. Filmez de profil ou de face, le corps entier dans l'image, pieds compris.", true); return; }
-      const d=detect(frames); J.to=d?.to??-1; J.ld=d?.ld??-1;
+      const d=detect(frames); J.jumps=d?.jumps||[]; J.sel=J.jumps.length? J.jumps.reduce((b,x,i,a)=>x.ld-x.to>a[b].ld-a[b].to? i : b, 0) : -1; J.to=J.sel>=0? J.jumps[J.sel].to : -1; J.ld=J.sel>=0? J.jumps[J.sel].ld : -1;
       // ralenti étiré (iPhone) : temps de vol impossible en temps réel → on suppose 240 ou 120 i/s
       J.autoFps=J.fpsDet; J.guess=false;
-      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps = S.jumpSlo || (F/240>=0.25 ? 240 : 120); } }
+      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps = S.jumpSlo || (F/120<=0.75 ? 120 : 240); } }   // un CMJ dure 0,3 à 0,75 s en l'air : 120 si plausible, sinon 240
       $("jFpsAuto").textContent=`Auto (${Math.round(J.autoFps)} i/s${J.autoFps!==J.fpsDet?", ralenti":""})`;
       $("jScrub").max=frames.length-1; $("jTools").hidden=false; $("jProg").hidden=true;
       setMsg(J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.", J.to<0);
@@ -200,8 +210,9 @@
   $("jNext").onclick=()=>show(Math.min(J.frames.length-1,J.cur+1));
   $("jGoTo").onclick=()=>{ if(J.to>=0) show(J.to); };
   $("jGoLd").onclick=()=>{ if(J.ld>=0) show(J.ld); };
-  $("jSetTo").onclick=()=>{ J.to=J.cur; if(J.ld<=J.to) J.ld=-1; renderRes(); show(J.cur); };
-  $("jSetLd").onclick=()=>{ J.ld=J.cur; renderRes(); show(J.cur); };
+  const syncSel=()=>{ const x=J.jumps[J.sel]; if(x && J.to>=0 && J.ld>J.to){ x.to=J.to; x.ld=J.ld; } };
+  $("jSetTo").onclick=()=>{ J.to=J.cur; if(J.ld<=J.to) J.ld=-1; syncSel(); renderRes(); show(J.cur); };
+  $("jSetLd").onclick=()=>{ J.ld=J.cur; syncSel(); renderRes(); show(J.cur); };
   $("jFps").onchange=()=>renderRes();
   $("jSave").onclick=()=>{
     const r=compute(); if(!r) return;
