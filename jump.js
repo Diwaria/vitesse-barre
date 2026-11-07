@@ -5,6 +5,7 @@
   const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
   const MODEL = "models/pose_landmarker_full.task";
   const G = 9.81;
+  const MODE = window.__jumpMode || "VIDEO";
   // segments du squelette (indices MediaPipe)
   const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[27,29],[29,31],[27,31],[28,30],[30,32],[28,32],[0,11],[0,12]];
   const JNAME = {cmj:"CMJ", sj:"Squat jump"};
@@ -13,7 +14,7 @@
     return lmP ||= (async()=>{
       const vision = await import(MP+"/vision_bundle.mjs");
       const fs = await vision.FilesetResolver.forVisionTasks(MP+"/wasm");
-      const mk = delegate => vision.PoseLandmarker.createFromOptions(fs, {baseOptions:{modelAssetPath:MODEL, delegate}, runningMode:"VIDEO", numPoses:1, minPoseDetectionConfidence:0.5, minTrackingConfidence:0.5});
+      const mk = delegate => vision.PoseLandmarker.createFromOptions(fs, {baseOptions:{modelAssetPath:MODEL, delegate}, runningMode:MODE, numPoses:1, minPoseDetectionConfidence:0.5, minTrackingConfidence:0.5});
       try{ return await mk("GPU"); }catch(e){ return await mk("CPU"); }
     })().catch(e=>{ lmP=null; throw e; });
   }
@@ -36,13 +37,67 @@
   }
 
   // image par image : décodage complet (WebCodecs), sinon lecture par sauts de 1/30 s
+  /* Suivi des pieds par l'image quand l'IA perd le corps (ex. le haut du corps sort du cadre en l'air) :
+     on mémorise un petit carré autour de chaque pied sur la dernière image fiable et on le retrouve
+     dans l'image suivante (corrélation), surtout verticalement. */
+  function grayAt(img, x0, y0, w, h){
+    const W=img.width, H=img.height, d=img.data, g=new Float32Array(w*h);
+    for(let y=0;y<h;y++){ const yy=Math.min(H-1,Math.max(0,y0+y)); for(let x=0;x<w;x++){ const xx=Math.min(W-1,Math.max(0,x0+x)), k=(yy*W+xx)*4; g[y*w+x]=d[k]*0.3+d[k+1]*0.59+d[k+2]*0.11; } }
+    return g;
+  }
+  function footTracker(){
+    const feet=[null,null];   // {tpl, w, h, x, y, toeDy}
+    function ncc(win, ww, f, ox, oy){
+      let sa=0,sb=0,saa=0,sbb=0,sab=0; const n=f.w*f.h, t=f.tpl;
+      for(let y=0;y<f.h;y++){ const r=(oy+y)*ww+ox, q=y*f.w; for(let x=0;x<f.w;x++){ const a=win[r+x], b=t[q+x]; sa+=a; sb+=b; saa+=a*a; sbb+=b*b; sab+=a*b; } }
+      const cov=sab-sa*sb/n, va=saa-sa*sa/n, vb=sbb-sb*sb/n; return va>1e-6&&vb>1e-6? cov/Math.sqrt(va*vb) : 0;
+    }
+    return {
+      learn(img, a){   // a = points de l'IA ; le carré couvre la chaussure / chaussette au-dessus de la pointe, sans le sol
+        const W=img.width, H=img.height;
+        [[29,31,27],[30,32,28]].forEach(([he,to,an],i)=>{
+          if(a[he*3+2]<0.5 || a[to*3+2]<0.5 || a[an*3+2]<0.5) return;
+          const xs=[he,to,an].map(k=>a[k*3]*W), toeY=Math.max(a[to*3+1],a[he*3+1])*H;
+          let x0=Math.min(...xs)-4, x1=Math.max(...xs)+4; if(x1-x0<14){ const c=(x0+x1)/2; x0=c-7; x1=c+7; } if(x1-x0>48){ const c=(x0+x1)/2; x0=c-24; x1=c+24; }
+          let y1=toeY-2, y0=Math.min(a[an*3+1]*H-6, y1-10); if(y1-y0>40) y0=y1-40;
+          const x=Math.round(x0), y=Math.round(y0), w=Math.round(x1-x0), h=Math.round(y1-y0);
+          feet[i]={tpl:grayAt(img,x,y,w,h), w, h, x, y, toeDy:a[to*3+1]*H-y};
+        });
+      },
+      track(img){   // renvoie la position verticale de la pointe de pied (normalisée), ou NaN
+        const H=img.height, R=12, V=48, ys=[];
+        for(const f of feet){ if(!f) continue;
+          const ww=f.w+2*R, wh=f.h+2*V, win=grayAt(img, f.x-R, f.y-V, ww, wh);
+          let best=-1, bx=0, by=0;
+          for(let oy=0;oy<=2*V;oy++) for(let ox=0;ox<=2*R;ox+=2){ const c=ncc(win,ww,f,ox,oy); if(c>best){ best=c; bx=ox; by=oy; } }
+          if(best<0.6) continue;
+          f.x+=bx-R; f.y+=by-V;
+          if(best>0.85) f.tpl=grayAt(img,f.x,f.y,f.w,f.h);   // le pied change d'aspect en l'air
+          ys.push((f.y+f.toeDy)/H);
+        }
+        return ys.length? ys.reduce((p,q)=>p+q,0)/ys.length : NaN;
+      },
+      ok(){ return feet.some(Boolean); }
+    };
+  }
+
   async function collect(lm){
-    const frames=[]; let lastTs=-1;
+    const frames=[]; let lastTs=-1, lost=0, off=0, still=0, lastPy=NaN; const ft=footTracker();
     const onImg=(img,t)=>{
       let ts=Math.round(t*1000); if(ts<=lastTs) ts=lastTs+1; lastTs=ts;
-      const r=lm.detectForVideo(img, ts); const p=r.landmarks?.[0];
+      const r= MODE==="IMAGE"? lm.detect(img) : lm.detectForVideo(img, ts); const p=r.landmarks?.[0];
       let a=null; if(p){ a=new Float32Array(99); p.forEach((q,i)=>{ a[i*3]=q.x; a[i*3+1]=q.y; a[i*3+2]=q.visibility??1; }); }
-      frames.push({t, p:a});
+      const good = a && [29,30,31,32].every(k=>a[k*3+2]>0.5) && a[23*3+2]>0.5 && a[24*3+2]>0.5;
+      // le suivi par l'image est la référence ; l'IA ne le recale que si les deux sont d'accord
+      // (en l'air, quand le haut du corps sort du cadre, l'IA peut placer les pieds n'importe où)
+      let ty = ft.ok()? ft.track(img) : NaN;
+      if(isFinite(ty)) lost=0; else lost++;
+      if(good){ const py=Math.max(a[31*3+1],a[32*3+1]);
+        const agree=isFinite(ty) && Math.abs(py-ty)*img.height<6;
+        // désaccord qui dure alors que l'IA voit les pieds immobiles (debout) : le suivi s'est accroché ailleurs
+        still = Math.abs(py-lastPy)*img.height<2 ? still+1 : 0; lastPy=py; off = agree? 0 : off+1;
+        if(!ft.ok() || lost>8 || agree || (off>15 && still>10)){ ft.learn(img,a); off=0; if(!isFinite(ty)) ty=py; } }
+      frames.push({t, p:a, ty});
       if(frames.length%6===0){ jctx.putImageData(img,0,0); drawSkel(a); $("jProg").value=Math.min(1, t/(J.video.duration||1)); }
     };
     try{
@@ -62,10 +117,11 @@
   // décollage / réception : la pointe de pied la plus basse quitte puis retrouve le niveau du sol
   function detect(frames){
     const n=frames.length, fy=new Array(n).fill(NaN); let legs=[];
-    for(let i=0;i<n;i++){ const a=frames[i].p; if(!a) continue;
+    for(let i=0;i<n;i++){ const a=frames[i].p; if(!a){ if(isFinite(frames[i].ty)) fy[i]=frames[i].ty; continue; }
       const toes=[31,32].filter(k=>a[k*3+2]>0.3).map(k=>a[k*3+1]);
       const heels=[29,30].filter(k=>a[k*3+2]>0.3).map(k=>a[k*3+1]);
       const pts=toes.length? toes : heels; if(pts.length) fy[i]=Math.max(...pts);
+      if(isFinite(frames[i].ty)) fy[i]=frames[i].ty;   // pieds suivis par l'image (prioritaire)
       const l=[[23,27],[24,28]].map(([h,k])=>Math.hypot(a[h*3]-a[k*3], (a[h*3+1]-a[k*3+1])*J.h/J.w)).filter(isFinite); if(l.length) legs.push(Math.max(...l)); }
     // petits trous comblés (≤ 6 images) ; les grands restent vides (corps hors champ)
     for(let i=0;i<n;i++) if(!isFinite(fy[i])){ let j=i; while(j<n && !isFinite(fy[j])) j++; if(i>0 && j<n && j-i<=6){ const a=fy[i-1], b=fy[j]; for(let k=i;k<j;k++) fy[k]=a+(b-a)*(k-i+1)/(j-i+1); } i=j; }
@@ -132,6 +188,16 @@
     if(hd>0.05) return Math.abs(Math.log(h(120)/hd)) <= Math.abs(Math.log(h(240)/hd)) ? 120 : 240;
     return F/120<=0.75 ? 120 : 240;
   }
+  /* Deux lectures des pieds : l'IA seule, et le suivi par l'image. Chacune a ses pièges (l'IA déraille quand
+     le haut du corps sort du cadre, le suivi peut rester accroché au sol) et les deux raccourcissent alors la
+     phase en l'air. Pour chaque saut, on garde la lecture qui voit le vol le plus long (l'IA à égalité). */
+  function bestJumps(frames){
+    const a=detect(frames.map(f=>({t:f.t, p:f.p, ty:NaN})))?.jumps||[], b=detect(frames)?.jumps||[];
+    const over=(x,y)=>Math.min(x.ld,y.ld)-Math.max(x.to,y.to)>0;
+    const out=a.map(x=>{ const y=b.find(y=>over(x,y)); return y && (y.ld-y.to)>(x.ld-x.to)+3 ? y : x; });
+    for(const y of b) if(!a.some(x=>over(x,y))) out.push(y);
+    return [...new Set(out)].sort((x,y)=>x.to-y.to);
+  }
   function captureFps(){
     const sel=$("jFps").value;
     if(sel!=="auto") return +sel;
@@ -190,7 +256,7 @@
       if(frames.length<10){ setMsg("Vidéo trop courte ou illisible.", true); return; }
       const ts=frames.map(f=>f.t); J.fpsDet=(frames.length-1)/Math.max(1e-3, ts[ts.length-1]-ts[0]);
       if(!frames.some(f=>f.p)){ setMsg("Aucun corps détecté. Filmez de profil ou de face, le corps entier dans l'image, pieds compris.", true); return; }
-      const d=detect(frames); J.jumps=d?.jumps||[]; J.sel=J.jumps.length? J.jumps.reduce((b,x,i,a)=>x.ld-x.to>a[b].ld-a[b].to? i : b, 0) : -1; J.to=J.sel>=0? J.jumps[J.sel].to : -1; J.ld=J.sel>=0? J.jumps[J.sel].ld : -1;
+      J.jumps=bestJumps(frames); J.sel=J.jumps.length? J.jumps.reduce((b,x,i,a)=>x.ld-x.to>a[b].ld-a[b].to? i : b, 0) : -1; J.to=J.sel>=0? J.jumps[J.sel].to : -1; J.ld=J.sel>=0? J.jumps[J.sel].ld : -1;
       // ralenti étiré (iPhone) : temps de vol impossible en temps réel → on suppose 240 ou 120 i/s
       J.autoFps=J.fpsDet; J.guess=false;
       if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps=J.autoPick=sloFps(J.jumps[J.sel]); } }
