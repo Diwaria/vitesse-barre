@@ -115,13 +115,18 @@
   }
 
   // décollage / réception : la pointe de pied la plus basse quitte puis retrouve le niveau du sol
-  function detect(frames){
+  function detect(frames, tight){
     const n=frames.length, fy=new Array(n).fill(NaN); let legs=[];
-    for(let i=0;i<n;i++){ const a=frames[i].p; if(!a){ if(isFinite(frames[i].ty)) fy[i]=frames[i].ty; continue; }
+    // suivi par l'image « figé » (même position plusieurs images) alors que l'IA voit les pieds ailleurs : décroché
+    const tyc=frames.map(f=>f.ty), poseY=i=>{ const a=frames[i].p; return a? Math.max(a[31*3+1],a[32*3+1]) : NaN; };
+    for(let i=0;i<n;i++){ if(!isFinite(tyc[i])) continue; let j=i; while(j+1<n && isFinite(tyc[j+1]) && Math.abs(tyc[j+1]-tyc[j])*J.h<0.6) j++;
+      if(j-i>=4){ let bad=false; for(let k=i;k<=j;k++){ const q=poseY(k); if(isFinite(q) && Math.abs(q-tyc[k])>0.02){ bad=true; break; } } if(bad) for(let k=i;k<=j;k++) tyc[k]=NaN; }
+      i=j; }
+    for(let i=0;i<n;i++){ const a=frames[i].p; if(!a){ if(isFinite(tyc[i])) fy[i]=tyc[i]; continue; }
       const toes=[31,32].filter(k=>a[k*3+2]>0.3).map(k=>a[k*3+1]);
       const heels=[29,30].filter(k=>a[k*3+2]>0.3).map(k=>a[k*3+1]);
       const pts=toes.length? toes : heels; if(pts.length) fy[i]=Math.max(...pts);
-      if(isFinite(frames[i].ty)) fy[i]=frames[i].ty;   // pieds suivis par l'image (prioritaire)
+      if(isFinite(tyc[i])) fy[i]=tyc[i];   // pieds suivis par l'image (prioritaire)
       const l=[[23,27],[24,28]].map(([h,k])=>Math.hypot(a[h*3]-a[k*3], (a[h*3+1]-a[k*3+1])*J.h/J.w)).filter(isFinite); if(l.length) legs.push(Math.max(...l)); }
     // petits trous comblés (≤ 6 images) ; les grands restent vides (corps hors champ)
     for(let i=0;i<n;i++) if(!isFinite(fy[i])){ let j=i; while(j<n && !isFinite(fy[j])) j++; if(i>0 && j<n && j-i<=6){ const a=fy[i-1], b=fy[j]; for(let k=i;k<j;k++) fy[k]=a+(b-a)*(k-i+1)/(j-i+1); } i=j; }
@@ -145,8 +150,9 @@
       const span=best[1]-best[0]+1; if(span<Math.max(4, longest*0.4)) continue;   // bruit / petits pas
       // il faut voir les pieds au sol juste avant et juste après
       if(!(best[0]>0 && isFinite(fy[best[0]-1])) || !(best[1]+1<n && isFinite(fy[best[1]+1]))) continue;
-      let to=best[0]; while(to>0 && fy[to-1]<gl[to-1]-edge) to--;
-      let ld=best[1]+1; while(ld<n && fy[ld]<gl[ld]-edge) ld++;
+      // suivi par l'image : le carré suivi bouge déjà un peu pendant l'appel (cheville), on s'arrête au seuil
+      let to=best[0]; if(!tight) while(to>0 && fy[to-1]<gl[to-1]-edge) to--;
+      let ld=best[1]+1; if(!tight) while(ld<n && fy[ld]<gl[ld]-edge) ld++;
       ld=Math.min(ld,n-1);
       // affinage : parabole sur la trajectoire en l'air, coupée avec le niveau du sol juste avant / juste après
       try{
@@ -190,11 +196,13 @@
   }
   /* Deux lectures des pieds : l'IA seule, et le suivi par l'image. Chacune a ses pièges (l'IA déraille quand
      le haut du corps sort du cadre, le suivi peut rester accroché au sol) et les deux raccourcissent alors la
-     phase en l'air. Pour chaque saut, on garde la lecture qui voit le vol le plus long (l'IA à égalité). */
+     phase en l'air. L'IA est gardée, sauf quand elle ne voit qu'un morceau du vol. */
   function bestJumps(frames){
     const a=detect(frames.map(f=>({t:f.t, p:f.p, ty:NaN})))?.jumps||[], b=detect(frames)?.jumps||[];
     const over=(x,y)=>Math.min(x.ld,y.ld)-Math.max(x.to,y.to)>0;
-    const out=a.map(x=>{ const y=b.find(y=>over(x,y)); return y && (y.ld-y.to)>(x.ld-x.to)+3 ? y : x; });
+    b.forEach(y=>y.src="suivi");
+    // l'IA reste la référence (plus précise) ; le suivi ne remplace que des morceaux de vol (IA perdue en l'air)
+    const out=a.map(x=>{ const y=b.find(y=>over(x,y)); return y && (y.ld-y.to)>1.5*(x.ld-x.to) ? y : x; });
     for(const y of b) if(!a.some(x=>over(x,y))) out.push(y);
     return [...new Set(out)].sort((x,y)=>x.to-y.to);
   }
@@ -264,7 +272,8 @@
       $("jScrub").max=frames.length-1; $("jTools").hidden=false; $("jProg").hidden=true;
       const cover=frames.filter(f=>f.p).length/frames.length;
       const cadre= cover<0.7? ` Le corps n'est reconnu que sur ${Math.round(cover*100)} % des images : cadrez le corps entier, de la tête aux pieds, téléphone fixe.` : "";
-      setMsg((J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.")+cadre, J.to<0 || !!cadre);
+      const viaSuivi=J.jumps.some(x=>x.src==="suivi");
+      setMsg((viaSuivi? "Corps mal cadré : décollage et réception estimés par le suivi des pieds, moins précis. Vérifiez-les image par image (boutons ci-dessous). " : "")+(J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.")+cadre, J.to<0 || !!cadre);
       renderRes(); await show(J.to>=0? J.to : 0);
       if(J.to>=0){ const r=compute(); if(r) say(`Hauteur de saut : ${(r.h*100).toFixed(1).replace(".", " virgule ")} centimètres.`, true); }
     }catch(e){ console.warn(e); setMsg("Analyse impossible : "+(e.message||e)+". Vérifiez la connexion internet (le modèle se télécharge la première fois).", true); reportErr?.(e); }
