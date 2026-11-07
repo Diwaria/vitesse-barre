@@ -513,7 +513,10 @@ function lossAt(vals, i){
   return ref>0 ? (ref-vals[i])/ref*100 : 0;
 }
 const METRIC_NAME = {mcv:"moyenne concentrique",mpv:"moyenne propulsive",peak:"pic"};
-const KEY = "vbt.v1";
+// Données rangées par compte : chaque joueur (ou le coach) a ses propres séries sur le téléphone
+const UID = (()=>{ try{ const c=window.VB_CONFIG||{}, ref=(c.url||"").match(/https:\/\/([^.]+)/)?.[1]; const t=ref && JSON.parse(localStorage.getItem("sb-"+ref+"-auth-token")||"null"); return t?.user?.id || ""; }catch(e){ return ""; } })();
+window.VB_UID = UID;
+const KEY = UID ? "vbt.v1:"+UID : "vbt.v1";
 let S = {exo:"squat",load:"",metric:"mcv",zmin:"",zmax:"",vloss:"20",diam:"45",voice:true,voiceReps:true,lossRef:"best",facing:"environment",history:[],sess:null,autoLoad:true};
 try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.parse(raw)); }catch(e){}
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
@@ -1218,13 +1221,15 @@ function finishSet(mpp, origin){
   try{ storeHistory(res); }catch(e){ reportErr(e); }
   if(origin==="direct") Promise.resolve(video).then(b=>{ if(b && lastResult===res){ res.videoBlob=b; $("bSaveVid").hidden=false; } });
   if(view==="form"){ formDone(res, video); return; }
-  if(view==="ptest"){ try{ ptestDone(res); }catch(e){ reportErr(e); } return; }
+  if(view==="ptest"){ const key="ptest-"+(S.ptest?.start||res.date); try{ ptestDone(res); }catch(e){ reportErr(e); }
+    window.Cloud?.onSet({res, sess:{exo:res.exo, load:res.load, key, start:res.date, vloss:S.vloss}, k:1, video}); return; }
   if(view==="sess" && S.sess && !S.sess.over){
     const k=S.sess.done.length+1, snap=JSON.parse(JSON.stringify(S.sess));
     addSetToSess(res);
     window.Cloud?.onSet({res, sess:snap, k, video});
   }
-  else { speakSummary(res); $("resCard").scrollIntoView({behavior:"smooth",block:"start"}); }
+  else { speakSummary(res); $("resCard").scrollIntoView({behavior:"smooth",block:"start"});
+    window.Cloud?.onSet({res, sess:{exo:res.exo, load:res.load, key:"quick-"+new Date(res.date).toISOString().slice(0,10), start:res.date, vloss:S.vloss}, k:1, video}); }
 }
 
 /* Vidéo de la série : on enregistre l'image analysée (640 px, avec le tracé), légère à envoyer */
@@ -2013,6 +2018,6 @@ go("home");
 const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("change",()=>{ if(lastResult) renderResult(lastResult); });
 </script>
 
-<script src="cloud.js?v=6"></script>
+<script src="cloud.js?v=7"></script>
 </body>
 </html>

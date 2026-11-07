@@ -9,7 +9,7 @@
   const exName = k => EXOS[k]?.name || k;
   if(!cfg.url || !cfg.key || !window.supabase){ main.innerHTML = `<p class="note">L'espace coach n'est pas encore relié au serveur.</p>`; return; }
   const sb = window.supabase.createClient(cfg.url, cfg.key);
-  let user=null, profile=null, team=null, players=[], sets=[], formes=[], perfSets=[], perfPlayer="", plans=[], tab="forme", filterPlayer="", weeks=6;
+  let user=null, profile=null, team=null, players=[], sets=[], formes=[], perfSets=[], perfPlayer="", sheetPlayer="", plans=[], tab="forme", filterPlayer="", weeks=6;
 
   function exOptions(sel){
     const cats={}; for(const [k,e] of Object.entries(EXOS)) (cats[e.cat] ||= []).push([k,e]);
@@ -230,9 +230,28 @@
       <button type="button" class="small" id="cpy">Copier le code</button></div>
       <div class="sets">${players.map(p=>{ const ps=sets.filter(s=>s.player_id===p.id); const last=ps[0]?.performed_at; const nWeek=new Set(ps.filter(s=>new Date(s.performed_at).getTime()>=wk0).map(s=>s.session_key)).size;
         return `<div class="setrow"><span class="k">${esc((p.name||"?").slice(0,2).toUpperCase())}</span><span class="m"><b>${esc(p.name||"Sans nom")}</b><br>${last? "dernière séance "+fmtDay(last) : "aucune séance"} · ${nWeek} séance(s) cette semaine</span>
-        <button type="button" class="small" data-see="${p.id}">Suivi</button></div>`; }).join("") || `<p class="note">Aucun joueur pour l'instant.</p>`}</div>`;
+        <span class="row" style="flex:0 0 auto;gap:6px"><button type="button" class="small primary" data-sheet="${p.id}">Fiche</button><button type="button" class="small" data-see="${p.id}">Suivi</button></span></div>${sheetPlayer===p.id? `<div id="sheet" class="sess"></div>`:""}`; }).join("") || `<p class="note">Aucun joueur pour l'instant.</p>`}</div>`;
     $("cpy").onclick=()=>{ navigator.clipboard?.writeText(team.code).then(()=>$("cpy").textContent="Copié",()=>{}); };
     body.querySelectorAll("[data-see]").forEach(b=>b.onclick=()=>{ filterPlayer=b.dataset.see; tab="suivi"; render(); });
+    body.querySelectorAll("[data-sheet]").forEach(b=>b.onclick=()=>{ sheetPlayer = sheetPlayer===b.dataset.sheet? "" : b.dataset.sheet; renderPlayers(); $("sheet")?.scrollIntoView({behavior:"smooth",block:"start"}); });
+    if(sheetPlayer && $("sheet")) renderSheet(sheetPlayer);
+  }
+  /* Fiche d'un joueur : forme du jour, 1RM estimés, dernières séries (toutes : séances, mesures rapides, tests) */
+  function renderSheet(pid){
+    const el=$("sheet"), p=players.find(x=>x.id===pid); if(!el||!p) return;
+    const ft=formeTests(pid), last=ft[ft.length-1];
+    const forme = last ? `<p class="m"><span class="fdot ${last.level}"></span> <b>${FL[last.level]}</b> · ${fmtDay(last.date)} · ${n2(last.v)} m/s${last.diff!=null? ` (${last.diff>=0?"+":"−"}${Math.abs(last.diff).toFixed(1).replace(".",",")} %)`:""} &nbsp;<span class="fdots">${ft.slice(-10).map(t=>`<span class="fdot ${t.level}" title="${fmtDay(t.date)} : ${n2(t.v)} m/s"></span>`).join("")}</span></p>` : `<p class="note">Aucun test de forme.</p>`;
+    const exos=Object.keys(EXOS).filter(k=>EXOS[k].mvt && perfSets.some(r=>r.player_id===pid && r.exo===k));
+    const perf = exos.length ? `<div class="tblwrap"><table class="tbl"><thead><tr><th>Exercice</th><th>1RM estimé</th><th>1 mois</th><th>Meilleures vitesses</th></tr></thead><tbody>${exos.map(k=>{ const pr=perfFor(pid,k);
+        return `<tr><td>${esc(EXOS[k].name)}</td><td>${pr.now? "<b>"+Math.round(pr.now.rm)+" kg</b>":"–"}</td><td>${pr.now&&pr.before? (pr.now.rm>=pr.before.rm?"+":"−")+Math.round(Math.abs(pr.now.rm-pr.before.rm))+" kg":"–"}</td><td>${pr.pts.slice(-4).map(q=>`${String(q.load).replace(".",",")} kg : ${n2(q.v)}`).join(" · ")}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="note">Pas encore de séries avec une charge.</p>`;
+    const kind=k=> String(k).startsWith("quick-")? "Mesure rapide" : String(k).startsWith("ptest-")? "Test de profil" : "Séance";
+    const mine=sets.filter(s=>s.player_id===pid).slice(0,25);
+    const rows = mine.length ? `<div class="tblwrap"><table class="tbl"><thead><tr><th>Date</th><th>Type</th><th>Exercice</th><th>Charge</th><th>Rép.</th><th>Meilleure</th><th>Perte</th><th>Amplitude</th></tr></thead><tbody>${mine.map(s=>{ const reps=s.reps||[]; const rom=reps.length? reps.reduce((a,r)=>a+(r.rom||0),0)/reps.length : null;
+        return `<tr><td>${fmtDay(s.performed_at)}</td><td>${kind(s.session_key)}</td><td>${esc(exName(s.exo))}</td><td>${s.load_kg!=null? String(s.load_kg).replace(".",",")+" kg":"–"}</td><td>${reps.length}</td><td>${n2(s.best)}</td><td>${s.loss!=null? Math.round(s.loss)+" %":"–"}</td><td>${rom!=null? Math.round(rom*100)+" cm":"–"}</td></tr>`; }).join("")}</tbody></table></div>` : `<p class="note">Aucune série reçue sur la période.</p>`;
+    el.innerHTML=`<h3 style="margin:0">${esc(p.name||"Sans nom")}</h3>
+      <div class="lbl">Forme du jour</div>${forme}
+      <div class="lbl">Performances (1RM estimés)</div>${perf}
+      <div class="lbl">Dernières séries</div>${rows}`;
   }
 
   async function load(){

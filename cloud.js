@@ -32,7 +32,7 @@
   }
 
   /* ---------- Envoi d'une série ---------- */
-  const QKEY="vbt.queue";
+  const QKEY="vbt.queue"+(window.VB_UID? ":"+window.VB_UID : "");
   const qGet=()=>{ try{ return JSON.parse(localStorage.getItem(QKEY)||"[]"); }catch(e){ return []; } };
   const qSet=q=>{ try{ localStorage.setItem(QKEY, JSON.stringify(q)); }catch(e){} };
   async function flushQueue(){
@@ -179,6 +179,8 @@
     const {data:p}=await sb.from("profiles").select("*").eq("id",user.id).maybeSingle(); profile=p;
     if(!profile?.team_id){ chooseRoleView(); return; }
     const {data:t}=await sb.from("teams").select("*").eq("id",profile.team_id).maybeSingle(); team=t;
+    // anciennes données du téléphone (avant la séparation par compte) : reprises par le compte coach uniquement
+    try{ const mine="vbt.v1:"+user.id; if(profile.role==="coach" && localStorage.getItem("vbt.v1") && !localStorage.getItem(mine)){ localStorage.setItem(mine, localStorage.getItem("vbt.v1")); localStorage.removeItem("vbt.v1"); if(window.VB_UID===user.id){ location.reload(); return; } } }catch(e){}
     if(profile.role==="coach"){
       show(`<h2 id="t-cloud">${esc(team?.name||"Mon équipe")}</h2><p class="note">Tu es connecté en tant que coach.</p>
         <a class="btn primary big" href="coach.html">Ouvrir l'espace coach</a><button type="button" id="cOut">Se déconnecter</button>`);
@@ -189,7 +191,14 @@
     await loadSets(); await renderPlayer();
     await flushQueue(); sendRequested().then(async()=>{ await loadSets(); renderPlayer(); });
   }
-  sb.auth.onAuthStateChange((ev)=>{ if(ev==="PASSWORD_RECOVERY"){ showGate("newpass"); return; } if(ev==="SIGNED_IN"||ev==="SIGNED_OUT") load(); });
+  sb.auth.onAuthStateChange((ev, session)=>{
+    if(ev==="PASSWORD_RECOVERY"){ showGate("newpass"); return; }
+    // changement de compte : on recharge pour ouvrir les données de ce compte (séries, tests, réglages)
+    const uid=session?.user?.id||"";
+    if((ev==="SIGNED_IN"||ev==="SIGNED_OUT") && uid!==(window.VB_UID||"")){
+      let last=0; try{ last=+sessionStorage.getItem("vb-reload")||0; }catch(e){}
+      if(Date.now()-last>10000){ try{ sessionStorage.setItem("vb-reload", Date.now()); }catch(e){} setTimeout(()=>location.reload(), 50); return; } }
+    if(ev==="SIGNED_IN"||ev==="SIGNED_OUT") load(); });
   window.addEventListener("online", flushQueue);
   load();
 })();
