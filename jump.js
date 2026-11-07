@@ -137,8 +137,12 @@
       <div class="stat"><b>${Math.round(r.tf*1000)} ms</b><span>Temps de vol</span></div>
       <div class="stat"><b>${r.fr}</b><span>Images en l'air</span></div>
       <div class="stat"><b>${Math.round(r.fps)} i/s</b><span>Cadence de tournage${slow?" (ralenti détecté)":""}</span></div></div>
+      ${slow && J.guess? `<div class="warnbox" style="margin-top:8px">La vidéo ne dit pas à quelle cadence le ralenti a été filmé. Vérifiez sur l'iPhone (Réglages › Appareil photo › Enregistrer au ralenti) :
+        <div class="seg" style="margin-top:8px">${[120,240].map(f=>`<button type="button" data-slo="${f}" aria-pressed="${J.autoFps===f}">${f} i/s</button>`).join("")}</div>
+        <span class="note">Votre choix est mémorisé pour les prochaines vidéos.</span></div>`:""}
       ${r.fps<60? `<p class="note">Vidéo à ${Math.round(r.fps)} images/s : précision d'environ ±${Math.round(G*r.tf/4/r.fps*100*10)/10} cm. Filmez en ralenti pour plus de précision.</p>`:""}`;
     $("jSave").hidden=false;
+    box.querySelectorAll("[data-slo]").forEach(b=>b.onclick=()=>{ S.jumpSlo=+b.dataset.slo; save(); J.autoFps=S.jumpSlo; $("jFpsAuto").textContent=`Auto (${J.autoFps} i/s, ralenti)`; renderRes(); });
   }
 
   async function analyze(file){
@@ -160,8 +164,8 @@
       if(!frames.some(f=>f.p)){ setMsg("Aucun corps détecté. Filmez de profil ou de face, le corps entier dans l'image, pieds compris.", true); return; }
       const d=detect(frames); J.to=d?.to??-1; J.ld=d?.ld??-1;
       // ralenti étiré (iPhone) : temps de vol impossible en temps réel → on suppose 240 ou 120 i/s
-      J.autoFps=J.fpsDet;
-      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9) J.autoFps = F/240>=0.25 ? 240 : 120; }
+      J.autoFps=J.fpsDet; J.guess=false;
+      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps = S.jumpSlo || (F/240>=0.25 ? 240 : 120); } }
       $("jFpsAuto").textContent=`Auto (${Math.round(J.autoFps)} i/s${J.autoFps!==J.fpsDet?", ralenti":""})`;
       $("jScrub").max=frames.length-1; $("jTools").hidden=false; $("jProg").hidden=true;
       setMsg(J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.", J.to<0);
