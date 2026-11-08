@@ -133,8 +133,8 @@
     if(!fy.some(isFinite)) return null;
     const sorted=fy.filter(isFinite).slice().sort((p,q)=>p-q), ground=sorted[Math.floor(sorted.length*0.6)];
     // sol local (la personne peut s'approcher / s'éloigner du téléphone entre deux sauts)
-    const W=Math.max(60, Math.round(n*0.08)), gl=new Array(n).fill(ground);
-    for(let i=0;i<n;i+=5){ const w=fy.slice(Math.max(0,i-W), Math.min(n,i+W)).filter(isFinite).sort((p,q)=>p-q); const g=w.length>20? w[Math.floor(w.length*0.6)] : ground; for(let k=i;k<Math.min(n,i+5);k++) gl[k]=g; }
+    const W=Math.max(150, Math.round(n*0.08)), gl=new Array(n).fill(ground);
+    for(let i=0;i<n;i+=5){ const w=fy.slice(Math.max(0,i-W), Math.min(n,i+W)).filter(isFinite).sort((p,q)=>p-q); const g=w.length>20? w[Math.floor(w.length*0.7)] : ground; for(let k=i;k<Math.min(n,i+5);k++) gl[k]=g; }
     legs.sort((p,q)=>p-q); const L=legs.length? legs[legs.length>>1] : 0.25;
     const thr=0.05*L, edge=0.015*L;
     // trou en plein vol (corps mal vu au sommet) : pieds en l'air des deux côtés → on relie
@@ -198,7 +198,7 @@
      le haut du corps sort du cadre, le suivi peut rester accroché au sol) et les deux raccourcissent alors la
      phase en l'air. L'IA est gardée, sauf quand elle ne voit qu'un morceau du vol. */
   function bestJumps(frames){
-    const a=detect(frames.map(f=>({t:f.t, p:f.p, ty:NaN})))?.jumps||[], b=detect(frames)?.jumps||[];
+    const a=detect(frames.map(f=>({t:f.t, p:f.p, ty:NaN})),true)?.jumps||[], b=detect(frames)?.jumps||[];
     const over=(x,y)=>Math.min(x.ld,y.ld)-Math.max(x.to,y.to)>0;
     b.forEach(y=>y.src="suivi");
     // l'IA reste la référence (plus précise) ; le suivi ne remplace que des morceaux de vol (IA perdue en l'air)
@@ -222,13 +222,32 @@
     const fr=J.ld-J.to, fps=captureFps(), tf=flight({to:J.to, ld:J.ld}, fps);
     return {fr, fps, tf, h:G*tf*tf/8};
   }
+  // garde en mémoire (JPEG) les images exactes analysées autour de chaque saut : le lecteur vidéo, lui,
+  // se cale souvent à quelques images près, ce qui faussait l'image affichée au décollage / à la réception
+  async function cacheFrames(){
+    J.jpg=[]; const keep=new Set();
+    for(const x of J.jumps) for(let i=Math.max(0,x.to-45); i<=Math.min(J.frames.length-1, x.ld+45); i++) keep.add(i);
+    if(!keep.size) return;
+    const last=Math.max(...keep), c=document.createElement("canvas"); c.width=J.w; c.height=J.h; const cx=c.getContext("2d");
+    let n=0;
+    try{
+      await decodeFile(J.file, 0, J.w, J.h, img=>{ if(keep.has(n)){ const k=n; cx.putImageData(img,0,0); c.toBlob(b=>{ J.jpg[k]=b; }, "image/jpeg", 0.8); } n++; }, ()=>n>last || !J.busy);
+    }catch(e){ J.jpg=[]; }
+  }
   async function show(i){
     const f=J.frames[i]; if(!f) return; J.cur=i;
     $("jScrub").value=i;
-    const v=J.video; v.currentTime=Math.min(Math.max(0,f.t+0.0005), Math.max(0,(v.duration||0)-0.001));
-    await new Promise(r=>{ v.onseeked=r; setTimeout(r,600); });
-    if(J.cur!==i) return;
-    jctx.clearRect(0,0,jcv.width,jcv.height); jctx.drawImage(v,0,0,jcv.width,jcv.height); drawSkel(f.p);
+    const blob=J.jpg?.[i];
+    if(blob){
+      const bm=await createImageBitmap(blob); if(J.cur!==i){ bm.close?.(); return; }
+      jctx.clearRect(0,0,jcv.width,jcv.height); jctx.drawImage(bm,0,0,jcv.width,jcv.height); bm.close?.();
+    } else {
+      const v=J.video; v.currentTime=Math.min(Math.max(0,f.t+0.0005), Math.max(0,(v.duration||0)-0.001));
+      await new Promise(r=>{ v.onseeked=r; setTimeout(r,600); });
+      if(J.cur!==i) return;
+      jctx.clearRect(0,0,jcv.width,jcv.height); jctx.drawImage(v,0,0,jcv.width,jcv.height);
+    }
+    drawSkel(f.p);
     const tag = i===J.to? " · décollage" : i===J.ld? " · réception" : (J.to>=0 && i>J.to && i<J.ld? " · en l'air" : "");
     $("jFrame").textContent=`Image ${i+1} / ${J.frames.length}${tag}`;
   }
@@ -280,11 +299,24 @@
       const cover=frames.filter(f=>f.p).length/frames.length;
       const cadre= cover<0.7? ` Le corps n'est reconnu que sur ${Math.round(cover*100)} % des images : cadrez le corps entier, de la tête aux pieds, téléphone fixe.` : "";
       const viaSuivi=J.jumps.some(x=>x.src==="suivi");
-      setMsg((viaSuivi? "Corps mal cadré : décollage et réception estimés par le suivi des pieds, moins précis. Vérifiez-les image par image (boutons ci-dessous). " : "")+(J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.")+cadre, J.to<0 || !!cadre);
+      const msgTxt=(viaSuivi? "Corps mal cadré : décollage et réception estimés par le suivi des pieds, moins précis. Vérifiez-les image par image (boutons ci-dessous). " : "")+(J.to>=0? "Vérifiez le décollage et la réception (boutons « Aller au… »), et ajustez si besoin." : "Décollage non trouvé automatiquement : placez-le à la main.")+cadre, msgBad=J.to<0 || !!cadre;
+      setMsg(msgTxt, msgBad);
+      if(J.jumps.length){ setMsg("Préparation des images du saut…"); await cacheFrames(); await new Promise(r=>setTimeout(r,300)); }
+      setMsg(msgTxt, msgBad);
       renderRes(); await show(J.to>=0? J.to : 0);
       if(J.to>=0){ const r=compute(); if(r) say(`Hauteur de saut : ${(r.h*100).toFixed(1).replace(".", " virgule ")} centimètres.`, true); }
     }catch(e){ console.warn(e); setMsg("Analyse impossible : "+(e.message||e)+". Vérifiez la connexion internet (le modèle se télécharge la première fois).", true); reportErr?.(e); }
     finally{ J.busy=false; $("jProg").hidden=true; }
+  }
+
+  // photos décollage / réception gardées sur le téléphone (IndexedDB), par saut enregistré
+  function jdb(){ return new Promise((res,rej)=>{ const r=indexedDB.open("vbt-jumps",1); r.onupgradeneeded=()=>r.result.createObjectStore("img"); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+  async function imgPut(id, v){ try{ const db=await jdb(); await new Promise((res,rej)=>{ const t=db.transaction("img","readwrite"); t.objectStore("img").put(v,id); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }catch(e){} }
+  async function imgGet(id){ try{ const db=await jdb(); return await new Promise(res=>{ const r=db.transaction("img").objectStore("img").get(id); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null); }); }catch(e){ return null; } }
+  async function imgDel(id){ try{ const db=await jdb(); db.transaction("img","readwrite").objectStore("img").delete(id); }catch(e){} }
+  async function frameBlob(i){
+    if(J.jpg?.[i]) return J.jpg[i];
+    await show(i); return await new Promise(r=>jcv.toBlob(r,"image/jpeg",0.8));
   }
 
   function renderJumps(){
@@ -298,7 +330,13 @@
       const d=new Date(j.date);
       r.innerHTML=`<span><b>${JNAME[j.type]||j.type}</b><br><span class="sub">${d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})} · ${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · ${Math.round(j.fps)} i/s</span></span><span style="text-align:right"><b>${(j.h*100).toFixed(1).replace(".",",")} cm</b><br><span class="sub">vol ${Math.round(j.tf*1000)} ms</span></span>`;
       const del=document.createElement("button"); del.type="button"; del.className="linkbtn"; del.style.gridColumn="1/-1"; del.textContent="Supprimer";
-      del.onclick=()=>{ if(!del.dataset.arm){ del.dataset.arm=1; del.textContent="Toucher encore pour confirmer"; return; } S.jumps=S.jumps.filter(x=>x.id!==j.id); save(); renderJumps(); };
+      del.onclick=()=>{ if(!del.dataset.arm){ del.dataset.arm=1; del.textContent="Toucher encore pour confirmer"; return; } S.jumps=S.jumps.filter(x=>x.id!==j.id); save(); imgDel(j.id); renderJumps(); };
+      const ph=document.createElement("div"); ph.style.cssText="grid-column:1/-1;display:flex;gap:8px"; r.appendChild(ph);
+      imgGet(j.id).then(v=>{ if(!v) return; [["to","Décollage"],["ld","Réception"]].forEach(([k,lab])=>{ if(!v[k]) return;
+        const fig=document.createElement("figure"); fig.style.cssText="margin:0;flex:1;text-align:center";
+        const im=document.createElement("img"); im.src=URL.createObjectURL(v[k]); im.alt=lab; im.style.cssText="width:100%;border-radius:8px;display:block";
+        const cap=document.createElement("figcaption"); cap.className="sub"; cap.textContent=lab;
+        fig.append(im,cap); ph.appendChild(fig); }); });
       r.appendChild(del); box.appendChild(r);
     });
   }
@@ -316,10 +354,12 @@
   $("jSetTo").onclick=()=>{ J.to=J.cur; if(J.ld<=J.to) J.ld=-1; syncSel(); renderRes(); show(J.cur); };
   $("jSetLd").onclick=()=>{ J.ld=J.cur; syncSel(); renderRes(); show(J.cur); };
   $("jFps").onchange=()=>renderRes();
-  $("jSave").onclick=()=>{
+  $("jSave").onclick=async ()=>{
     const r=compute(); if(!r) return;
+    const keepTo=J.to, keepLd=J.ld;
     const j={id:"j"+Date.now(), date:Date.now(), type:J.type, h:+r.h.toFixed(4), tf:+r.tf.toFixed(4), fps:r.fps, fr:r.fr};
-    S.jumps.unshift(j); S.jumps=S.jumps.slice(0,300); save(); renderJumps();
+    try{ const to=await frameBlob(keepTo), ld=await frameBlob(keepLd); await imgPut(j.id, {to, ld}); }catch(e){}
+    S.jumps.unshift(j); const drop=S.jumps.slice(300); S.jumps=S.jumps.slice(0,300); drop.forEach(x=>imgDel(x.id)); save(); renderJumps();
     window.Cloud?.onJump?.(j);
     $("jSave").hidden=true; say("Saut enregistré.", true);
   };
