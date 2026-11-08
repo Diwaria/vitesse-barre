@@ -190,7 +190,7 @@
   // ralenti iPhone ré-encodé en 30 i/s : 120 ou 240 ? On garde la cadence dont la hauteur (temps de vol)
   // colle le mieux à la montée des pieds vue dans l'image (jambe ≈ 0,85 m) ; à défaut, durée de vol plausible.
   function sloFps(x){
-    const F=x.ld-x.to, h=f=>G*(F/f)*(F/f)/8, hd=(x.rise||0)*0.85;
+    const F=(J.frames[x.ld].t-J.frames[x.to].t)*J.base, h=f=>G*(F/f)*(F/f)/8, hd=(x.rise||0)*0.85;
     if(hd>0.05) return Math.abs(Math.log(h(120)/hd)) <= Math.abs(Math.log(h(240)/hd)) ? 120 : 240;
     return F/120<=0.75 ? 120 : 240;
   }
@@ -211,9 +211,15 @@
     if(sel!=="auto") return +sel;
     return J.autoFps || J.fpsDet;
   }
+  // temps de vol à partir des horodatages (certains exports ont des images irrégulières ou sautées) ;
+  // ralenti lu à vitesse normale : chaque image du fichier (cadence de base, 30 i/s) = 1/fps seconde réelle
+  function flight(x, fps){
+    const dt=J.frames[x.ld].t-J.frames[x.to].t;
+    return fps>1.5*J.fpsDet ? dt*J.base/fps : dt;
+  }
   function compute(){
     if(J.to<0 || J.ld<=J.to) return null;
-    const fr=J.ld-J.to, fps=captureFps(), tf=fr/fps;
+    const fr=J.ld-J.to, fps=captureFps(), tf=flight({to:J.to, ld:J.ld}, fps);
     return {fr, fps, tf, h:G*tf*tf/8};
   }
   async function show(i){
@@ -230,7 +236,7 @@
     const r=compute(), box=$("jRes");
     if(!r){ box.innerHTML=`<p class="warnbox">Décollage ou réception non trouvés. Placez-vous sur l'image du décollage puis sur celle de la réception avec les boutons ci-dessous.</p>`; $("jSave").hidden=true; return; }
     const slow = $("jFps").value==="auto" && J.autoFps && J.autoFps!==J.fpsDet;
-    const fps=captureFps(), hOf=x=>{ const t=(x.ld-x.to)/fps; return G*t*t/8; };
+    const fps=captureFps(), hOf=x=>{ const t=flight(x,fps); return G*t*t/8; };
     const chips = J.jumps.length>1 ? `<div class="lbl" style="margin-top:4px">${J.jumps.length} sauts trouvés · meilleur ${(Math.max(...J.jumps.map(hOf))*100).toFixed(1).replace(".",",")} cm</div>
       <div class="seg" style="flex-wrap:wrap;margin-bottom:8px">${J.jumps.map((x,i)=>`<button type="button" data-jsel="${i}" aria-pressed="${i===J.sel}">Saut ${i+1} : ${(hOf(x)*100).toFixed(1).replace(".",",")} cm</button>`).join("")}</div>` : "";
     box.innerHTML=chips+`<div class="sum" style="grid-template-columns:repeat(2,1fr)">
@@ -263,11 +269,12 @@
       J.frames=frames;
       if(frames.length<10){ setMsg("Vidéo trop courte ou illisible.", true); return; }
       const ts=frames.map(f=>f.t); J.fpsDet=(frames.length-1)/Math.max(1e-3, ts[ts.length-1]-ts[0]);
+      { const d=ts.slice(1).map((t,i)=>t-ts[i]).filter(v=>v>1e-4).sort((p,q)=>p-q); J.base= d.length? 1/d[d.length>>1] : J.fpsDet; }
       if(!frames.some(f=>f.p)){ setMsg("Aucun corps détecté. Filmez de profil ou de face, le corps entier dans l'image, pieds compris.", true); return; }
       J.jumps=bestJumps(frames); J.sel=J.jumps.length? J.jumps.reduce((b,x,i,a)=>x.ld-x.to>a[b].ld-a[b].to? i : b, 0) : -1; J.to=J.sel>=0? J.jumps[J.sel].to : -1; J.ld=J.sel>=0? J.jumps[J.sel].ld : -1;
       // ralenti étiré (iPhone) : temps de vol impossible en temps réel → on suppose 240 ou 120 i/s
       J.autoFps=J.fpsDet; J.guess=false;
-      if(J.to>=0 && J.fpsDet<90){ const F=J.ld-J.to; if(F/J.fpsDet>0.9){ J.guess=true; J.autoFps=J.autoPick=sloFps(J.jumps[J.sel]); } }
+      if(J.to>=0 && J.fpsDet<90){ const dt=J.frames[J.ld].t-J.frames[J.to].t; if(dt>0.9){ J.guess=true; J.autoFps=J.autoPick=sloFps(J.jumps[J.sel]); } }
       $("jFpsAuto").textContent=`Auto (${Math.round(J.autoFps)} i/s${J.autoFps!==J.fpsDet?", ralenti":""})`;
       $("jScrub").max=frames.length-1; $("jTools").hidden=false; $("jProg").hidden=true;
       const cover=frames.filter(f=>f.p).length/frames.length;
