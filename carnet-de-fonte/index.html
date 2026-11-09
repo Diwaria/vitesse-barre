@@ -377,7 +377,7 @@ async function syncWith(db,id){
     SESS=[...local.values()];saveLocal();
     setSync('ok','Synchronisé');
     if(UI.tab==='session'&&!S.current)UI.tab='home';
-    render();
+    render();checkPending();
   }
 }
 
@@ -453,7 +453,7 @@ async function onUser(user){
   try{const t=localStorage.getItem(LS_KEY+'-tab');UI.tab=t||'home';}catch(e){UI.tab='home';}
   if(UI.tab==='session'&&!S.current)UI.tab='home';
   renderAuth();render();setSync('','Connexion…');
-  try{await syncWith(sbDb(),ME.id);}catch(e){setSync('err','Sur l’appareil');}
+  try{await syncWith(sbDb(),ME.id);}catch(e){setSync('err','Sur l’appareil');checkPending();}
 }
 async function initAuth(){
   const cfg=window.CF_CONFIG||{};
@@ -725,9 +725,51 @@ function vProgramDetail(p){
   <h3>${esc(wk.name)}</h3>
   <div class="stack">${wk.days.map((d,di)=>`<div class="day"><div class="row between"><b>${esc(d.name)}</b>${isActive?`<button class="btn sm" data-a="startDay" data-w="${w}" data-d="${di}" ${S.current?'disabled':''}>Lancer</button>`:''}</div>
     ${d.items.map(it=>`<div class="it"><span class="n">${esc(exName(it.exId))}${it.note?`<br><span class="small muted" style="font-weight:400">${esc(it.note)}</span>`:''}</span><span class="s">${summarizeSets(it,p)}</span></div>`).join('')}</div>`).join('')}</div>
-  <div class="btns"><button class="btn" data-a="dupProg" data-id="${p.id}">Dupliquer</button><button class="btn danger" data-a="delProg" data-id="${p.id}">Supprimer</button></div>`;
+  <div class="btns"><button class="btn" data-a="shareProg" data-id="${p.id}">Partager ce programme</button><button class="btn" data-a="dupProg" data-id="${p.id}">Dupliquer</button><button class="btn danger" data-a="delProg" data-id="${p.id}">Supprimer</button></div>`;
 }
 function addProgram(p,source){const n={...clone(p),id:'p'+uid(),source};S.programs.push(n);commit();return n;}
+
+/* ---------- Partage d'un programme par lien ---------- */
+// Le programme voyage dans le lien lui-même (compressé) : rien n'est stocké ailleurs.
+const APP_URL='https://diwaria.github.io/vitesse-barre/carnet-de-fonte/';
+const b64u={enc:u8=>{let b='';for(let i=0;i<u8.length;i+=8192)b+=String.fromCharCode.apply(null,u8.subarray(i,i+8192));return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');},
+  dec:t=>{t=t.replace(/-/g,'+').replace(/_/g,'/');const b=atob(t);return Uint8Array.from(b,c=>c.charCodeAt(0));}};
+async function packProg(p){
+  const used=new Set(p.weeks.flatMap(w=>w.days.flatMap(d=>d.items.map(i=>i.exId))));
+  const prog=clone(p);delete prog.id;delete prog.source;
+  const json=JSON.stringify({v:1,p:prog,ex:S.customEx.filter(e=>used.has(e.id))});
+  if(window.CompressionStream){const buf=await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer();return'z'+b64u.enc(new Uint8Array(buf));}
+  return'j'+b64u.enc(new TextEncoder().encode(json));
+}
+async function unpackProg(code){
+  const kind=code[0],bytes=b64u.dec(code.slice(1));let txt;
+  if(kind==='z')txt=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+  else txt=new TextDecoder().decode(bytes);
+  const j=JSON.parse(txt);if(!j||!j.p||!Array.isArray(j.p.weeks))throw 0;return j;
+}
+const PEND_KEY='carnet-fonte-prog-recu';
+let PEND_SHOWN=false;
+function grabHash(){try{const m=location.hash.match(/prog=([A-Za-z0-9_-]+)/);if(m){localStorage.setItem(PEND_KEY,m[1]);history.replaceState(null,'',location.pathname+location.search);PEND_SHOWN=false;return true;}}catch(e){}return false;}
+grabHash();
+window.addEventListener('hashchange',()=>{if(grabHash()&&(ME||DB))checkPending();});
+async function checkPending(){
+  if(PEND_SHOWN)return;let code=null;try{code=localStorage.getItem(PEND_KEY);}catch(e){}
+  if(!code)return;PEND_SHOWN=true;
+  let j;try{j=await unpackProg(code);}catch(e){try{localStorage.removeItem(PEND_KEY)}catch(x){}toast('Lien de programme abîmé : demande à ce qu’on te le renvoie');return;}
+  UI.pending=j;const p=j.p,days=p.weeks[0]?p.weeks[0].days.length:0;
+  openModal(`<div class="sheet-h"><h2>Programme reçu</h2><button class="icon-btn" data-a="pendNo" aria-label="Fermer">${ico('x')}</button></div>
+    <section class="card flat"><b>${esc(p.name)}</b><p class="small muted">${p.weeks.length} semaine${p.weeks.length>1?'s':''} · ${days} séance${days>1?'s':''} par semaine</p>${p.desc?`<p class="small">${esc(p.desc)}</p>`:''}</section>
+    <p class="small muted">Il sera ajouté à tes programmes. Pense à renseigner tes 1RM pour que les charges soient calculées pour toi.</p>
+    <div class="btns"><button class="btn" data-a="pendNo">Ignorer</button><button class="btn" data-a="pendYes">Ajouter</button><button class="btn primary" data-a="pendYes" data-act="1">Ajouter et activer</button></div>`);
+}
+async function shareProg(p){
+  let url;try{url=APP_URL+'#prog='+await packProg(p);}catch(e){toast('Impossible de créer le lien');return;}
+  openModal(`<div class="sheet-h"><h2>Partager « ${esc(p.name)} »</h2><button class="icon-btn" data-a="closeModal" aria-label="Fermer">${ico('x')}</button></div>
+    <p class="small">Envoie ce lien à la personne (SMS, WhatsApp, e-mail…). En l’ouvrant, elle se connecte à son compte et le programme s’ajoute chez elle. Ses séances restent les siennes.</p>
+    <textarea class="inp" id="shareUrl" rows="3" readonly style="font-size:.8rem;word-break:break-all">${esc(url)}</textarea>
+    <div class="btns">${navigator.share?'<button class="btn" data-a="shareSend">Envoyer…</button>':''}<button class="btn primary" data-a="shareCopy">Copier le lien</button></div>`);
+  UI.shareUrl=url;UI.shareName=p.name;
+}
 
 /* ---------- Éditeur ---------- */
 function setMode(s){return s.pct!=null&&s.pct!==''?'pct':s.kg!=null&&s.kg!==''?'kg':s.rpe!=null&&s.rpe!==''?'rpe':'libre';}
@@ -1141,6 +1183,13 @@ const A={
     openModal(`<div class="sheet-h"><h2>Sauvegarde</h2><button class="icon-btn" data-a="closeModal" aria-label="Fermer">${ico('x')}</button></div><p class="small muted">Copie ce texte et garde-le dans tes notes ou un fichier.</p><textarea class="inp" id="expTxt" style="min-height:220px;font-family:monospace;font-size:12px" readonly>${esc(data)}</textarea><button class="btn primary" data-a="copyExp">Copier</button>`);},
   copyExp:()=>{const t=$('#expTxt');navigator.clipboard&&navigator.clipboard.writeText(t.value).then(()=>toast('Copié'),()=>{t.select();toast('Texte sélectionné, copie-le');})||(t.select());},
   import:()=>$('#importFile').click(),
+  shareProg:d=>shareProg(progById(d.id)),
+  shareCopy:async()=>{const ta=$('#shareUrl');try{await navigator.clipboard.writeText(UI.shareUrl);toast('Lien copié');}catch(e){try{ta.select();document.execCommand('copy');toast('Lien copié');}catch(x){ta.select();toast('Sélectionne le lien et copie-le');}}},
+  shareSend:async()=>{try{await navigator.share({title:'Programme : '+UI.shareName,text:'Voici ton programme « '+UI.shareName+' » sur Carnet de Fonte :',url:UI.shareUrl});}catch(e){}},
+  pendNo:()=>{try{localStorage.removeItem(PEND_KEY)}catch(e){}UI.pending=null;closeModal();},
+  pendYes:d=>{const j=UI.pending;if(!j)return;try{localStorage.removeItem(PEND_KEY)}catch(e){}UI.pending=null;
+    for(const e of(j.ex||[]))if(e&&e.id&&!S.customEx.some(x=>x.id===e.id))S.customEx.push({id:String(e.id),name:String(e.name||'Exercice'),group:String(e.group||'Autre'),type:'perso'});
+    const p=addProgram(j.p,'partage');if(d.act)S.active={pid:p.id,w:0,d:0,cycle:1};commit();closeModal();UI.programId=p.id;UI.week=0;go('programs');toast(d.act?'Programme ajouté et activé':'Programme ajouté');},
   logout:()=>confirmBox('Se déconnecter de ce téléphone ?','Se déconnecter',async()=>{stopRest();clearTimeout(curTimer);if(profTimer){clearTimeout(profTimer);profTimer=null;try{S.updatedAt=Date.now();saveLocal();if(DB)await DB.doc(profPath()).set(clone(S));}catch(e){}}try{await SB.auth.signOut();}catch(e){}onUser(null);}),
   authMode:d=>{AUTH.mode=d.m;AUTH.msg='';renderAuth();},
   reset:()=>confirmBox('Effacer toutes tes données (séances, programmes, 1RM) ? C’est définitif.','Tout effacer',()=>{const ids=SESS.map(s=>s.id);S=defaultProfile();S.updatedAt=Date.now();SESS=[];ids.forEach(id=>queueWrite(`${sessCol()}/${id}`,null));commit();go('home');toast('Données effacées');}),
@@ -1190,6 +1239,6 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 
 /* ============ Démarrage ============ */
 render();
-initCloud();
+initCloud().then(()=>{if(IN_CLAUDE&&!DB)checkPending();});
 getSample().then(()=>{if(UI.tab==='coach')render();});
 </script>
