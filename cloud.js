@@ -37,6 +37,7 @@
   const qSet=q=>{ try{ localStorage.setItem(QKEY, JSON.stringify(q)); }catch(e){} };
   async function flushQueue(){
     if(!user || !profile?.team_id) return;
+    try{ const pend=JSON.parse(localStorage.getItem(QKEY+".fix")||"{}"); for(const id of Object.keys(pend)){ const {error}=await sb.from("sets").update(pend[id]).eq("id",id).eq("player_id",user.id); if(!error) delete pend[id]; } localStorage.setItem(QKEY+".fix", JSON.stringify(pend)); }catch(e){}
     const q=qGet(); if(!q.length) return;
     const left=[];
     for(const row of q){ const {error}=await sb.from("sets").upsert(row); if(error) left.push(row); }
@@ -44,7 +45,8 @@
   }
   window.Cloud = {
     async onSet({res, sess, k, video}){
-      const id = (crypto.randomUUID && crypto.randomUUID()) || ("x"+Date.now()+Math.random()).replace(".","");
+      const id = res.cloudId || (crypto.randomUUID && crypto.randomUUID()) || ("x"+Date.now()+Math.random()).replace(".","");
+      res.cloudId = id;
       const m = S.metric || "mcv";
       const vals = res.reps.map(r=>r[m]);
       const best = vals.length? Math.max(...vals) : null, last = vals.length? vals[vals.length-1] : null;
@@ -61,6 +63,18 @@
     }
   };
 
+  // répétition effacée après coup (fausse rép.) : on corrige la série chez le coach
+  window.Cloud.updateSet = async (res)=>{
+    const id=res.cloudId; if(!id) return;
+    const m=S.metric||"mcv", vals=res.reps.map(r=>r[m]);
+    const patch={ reps: res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)})),
+      best: vals.length? Math.max(...vals) : null, last: vals.length? vals[vals.length-1] : null, loss: vals.length? +lossAt(vals, vals.length-1).toFixed(1) : null };
+    const q=qGet(), qi=q.findIndex(r=>r.id===id);
+    if(qi>=0){ Object.assign(q[qi], patch); qSet(q); await flushQueue(); return; }   // pas encore envoyée
+    if(!user || !profile?.team_id) return;
+    const {error}=await sb.from("sets").update(patch).eq("id", id).eq("player_id", user.id);
+    if(error){ const pend=JSON.parse(localStorage.getItem(QKEY+".fix")||"{}"); pend[id]=patch; try{ localStorage.setItem(QKEY+".fix", JSON.stringify(pend)); }catch(e){} }
+  };
   window.Cloud.onJump = async (j)=>{
     if(!user || !profile?.team_id) return;
     const id=(crypto.randomUUID && crypto.randomUUID()) || ("x"+Date.now()+Math.random()).replace(".","");

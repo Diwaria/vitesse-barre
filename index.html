@@ -129,7 +129,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 8px;border-radius:99px;background:var(--sunk);color:var(--muted)}
 .badge.demo{background:var(--warn);color:#1a1200}
 .reps{display:flex;flex-direction:column;gap:6px}
-.rep{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--sunk);border-left:4px solid var(--muted)}
+.rep{display:grid;grid-template-columns:28px 1fr auto auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--sunk);border-left:4px solid var(--muted)}
 .rep.ok{border-left-color:var(--ok)}.rep.warn{border-left-color:var(--warn)}.rep.bad{border-left-color:var(--bad)}
 .rep .n{font-family:var(--display);font-size:20px;font-weight:700;color:var(--muted)}
 .rep .v{font-family:var(--display);font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
@@ -138,6 +138,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .rep .bar i{display:block;height:100%;background:var(--accent)}
 .rep .det{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;line-height:1.35}
 .rep .det b{color:var(--fg);font-weight:600;font-size:13px}
+.rep .rdel{padding:6px 9px;font-size:13px;font-weight:600;color:var(--muted);background:transparent;border-radius:8px;min-width:34px}
+.rep .rdel.arm{color:#fff;background:var(--bad);border-color:var(--bad)}
 .chart{width:100%;height:auto;display:block;border-radius:10px;background:var(--sunk)}
 .hist{display:flex;flex-direction:column;gap:6px}
 .hrow{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 10px;background:var(--sunk);border-radius:10px;font-size:14px;font-variant-numeric:tabular-nums;cursor:pointer;text-align:left;border:0;width:100%;font-weight:400}
@@ -390,6 +392,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       </div>
       <label class="field" id="twoWrap" hidden style="flex:1 1 120px"><span class="lbl">Distance entre les 2 points (cm)</span><input id="twoDist" type="number" inputmode="decimal" min="1" step="0.5" value="45"></label>
     </div>
+    <label class="field" id="sizeWrap" hidden><span class="lbl">Le cercle vert ne colle pas au bord du disque ? Ajustez sa taille</span><input id="cSize" type="range" min="60" max="140" value="100"></label>
     <p class="note" id="calInfo"></p>
     <progress id="prog" max="1" value="0" hidden></progress>
     <div class="livebig" id="liveBig" hidden>–<small> m/s</small></div>
@@ -647,6 +650,26 @@ function ringSigned(g,W,H,cx,cy,r){
   }
   return n? [sL/n,sA/n,sB/n] : [1,0,0];
 }
+// rayon du disque autour du manchon : sur chaque rayon, on part du centre et on cherche où l'on quitte la
+// couleur du disque (relevée juste autour du manchon) ; médiane sur toutes les directions
+// (robuste aux disques mouchetés, au fond sombre et aux montants du rack qui cachent une partie du bord)
+function plateRadial(g,W,H,cx,cy,h){
+  const R=[], A=72, rmax=Math.min(220, Math.max(W,H)), vals=new Float32Array(rmax*3);
+  for(let i=0;i<A;i++){
+    const c=Math.cos(2*Math.PI*i/A), s=Math.sin(2*Math.PI*i/A); let n=0;
+    for(let r=0;r<rmax;r++){ const x=Math.round(cx+r*c), y=Math.round(cy+r*s); if(x<0||y<0||x>=W||y>=H) break; const k=(y*W+x)*3; vals[r*3]=g[k]; vals[r*3+1]=1.5*g[k+1]; vals[r*3+2]=1.5*g[k+2]; n++; }
+    if(n<5*h) continue;
+    const a0=Math.round(2*h), a1=Math.round(3.5*h), mu=[0,0,0], sd=[0,0,0];
+    for(let ch=0;ch<3;ch++){ const arr=[]; for(let r=a0;r<a1;r++) arr.push(vals[r*3+ch]); arr.sort((p,q)=>p-q); mu[ch]=arr[arr.length>>1]; const m=arr.reduce((p,q)=>p+q,0)/arr.length; sd[ch]=Math.sqrt(arr.reduce((p,q)=>p+(q-m)*(q-m),0)/arr.length); }
+    const th=Math.max(28, 2.5*(sd[0]+sd[1]+sd[2])/3);
+    const dev=r=>{ let m=0; for(let ch=0;ch<3;ch++){ let sm=0,c2=0; for(let q=r-3;q<=r+3;q++) if(q>=0&&q<n){ sm+=vals[q*3+ch]; c2++; } m=Math.max(m, Math.abs(sm/c2-mu[ch])); } return m; };
+    // on sort du disque quand on s'en écarte sur 8 px d'affilée (les lettres et les mouchetures sont plus fines)
+    let run=0; for(let r=Math.round(3*h); r<n; r++){ if(dev(r)>th){ if(++run>=8){ R.push(r-7); break; } } else run=0; }
+  }
+  if(R.length < A*0.4) return null;
+  R.sort((p,q)=>p-q); const med=R[R.length>>1], q1=R[Math.floor(R.length*0.25)], q3=R[Math.floor(R.length*0.75)];
+  return {r:med, n:R.length, spread:(q3-q1)/med};
+}
 function findCircle(g,W,H,tx,ty){
   const rmax=Math.min(W,H)*0.45, cand=[], R=60;
   for(let cy=ty-R;cy<=ty+R;cy+=3) for(let cx=tx-R;cx<=tx+R;cx+=3){
@@ -656,12 +679,25 @@ function findCircle(g,W,H,tx,ty){
   if(!cand.length) return null;
   cand.sort((a,b)=>b[0]-a[0]);
   const best=cand[0][0];
+  // toucher posé sur le manchon (petit cercle très net) : on part de lui
+  let hubC=null; for(const c of cand){ if(c[0]<best*0.6) break; if(c[3]<rmax*0.3 && Math.hypot(c[1]-tx,c[2]-ty)<=Math.max(5,0.7*c[3])){ hubC=c; break; } }
   // meilleur cercle ; on ne passe à un cercle plus grand que s'il est concentrique (bord extérieur plutôt que le moyeu)
-  let pick=cand[0]; for(const c of cand){ if(c[0]<best*0.85) break; if(c[3]>pick[3] && Math.hypot(c[1]-cand[0][1],c[2]-cand[0][2])<=Math.max(6,0.15*c[3])) pick=c; }
-  let [sc,cx,cy,r]=pick; const rlo=Math.max(14,pick[3]-3);
-  for(let it=0;it<3;it++){ let b=[sc,cx,cy,r];
-    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2++){ if(r+d2<rlo) continue; const s2=ringScore(g,W,H,cx+dx,cy+dy,r+d2); if(s2>b[0]) b=[s2,cx+dx,cy+dy,r+d2]; }
-    [sc,cx,cy,r]=b; }
+  let pick=hubC||cand[0]; if(!hubC) for(const c of cand){ if(c[0]<best*0.85) break; if(c[3]>pick[3] && Math.hypot(c[1]-cand[0][1],c[2]-cand[0][2])<=Math.max(6,0.15*c[3])) pick=c; }
+  // petit cercle très contrasté (bout du manchon) : le disque est le grand cercle concentrique autour,
+  // même s'il contraste moins (disques mouchetés, fond sombre)
+  // on suit alors le manchon (net, jamais caché) et on calibre sur le disque
+  const refine=(p,rlo)=>{ let [sc,cx,cy,r]=p;
+    for(let it=0;it<3;it++){ let b=[sc,cx,cy,r];
+      for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2++){ if(r+d2<rlo) continue; const s2=ringScore(g,W,H,cx+dx,cy+dy,r+d2); if(s2>b[0]) b=[s2,cx+dx,cy+dy,r+d2]; }
+      [sc,cx,cy,r]=b; }
+    return [sc,cx,cy,r]; };
+  if(pick[3] < rmax*0.3){
+    const hub=refine(pick, Math.max(8,pick[3]-3));
+    const pr=plateRadial(g,W,H,hub[1],hub[2],hub[3]);
+    if(pr && pr.r>=3*hub[3] && pr.spread<0.6 && hub[0]>=15) return {score:hub[0],x:hub[1],y:hub[2],r:pr.r,hub:{r:hub[3],score:hub[0]}};
+    for(const c of cand){ if(c[0]<best*0.45) break; if(c[3]>=3*pick[3] && Math.hypot(c[1]-pick[1],c[2]-pick[2])<=Math.max(6,0.12*c[3])){ pick=c; break; } }
+  }
+  const [sc,cx,cy,r]=refine(pick, Math.max(14,pick[3]-3));
   return sc>=15 ? {score:sc,x:cx,y:cy,r} : null;
 }
 class Tracker {
@@ -682,16 +718,22 @@ class Tracker {
       if(s0 > 0.32 && v0 > 0.18){ this.col = {h:h0, ht:18, smin:Math.max(0.2,s0*0.45), vmin:Math.max(0.1,v0*0.35)}; blob = this.flood(img, Math.round(x), Math.round(y)); }
     }
     if(blob && blob.n < 20) blob=null;
+    if(window.__noColor) blob=null;
     // 2) contour du disque autour du toucher : sert à la calibration (45 cm), et au suivi s'il n'y a pas de couleur
     const circ = findCircle(grayOf(img), this.W, this.H, Math.round(blob? blob.cx : x), Math.round(blob? blob.cy : y));
+    // repère coloré plus petit que le disque (embout rouge…) : on suit plutôt le bord du disque,
+    // le repère coloré peut sauter sur d'autres éléments de la même couleur (crochets du rack)
+    if(blob && circ && 2*circ.r > Math.max(blob.w,blob.h)*1.15 && !window.__forceColor) blob=null;
     if(blob){
       this.mode="color"; this.n0=blob.n; this.bw=blob.w; this.bh=blob.h; this.x=blob.cx; this.y=blob.cy; this.blob=blob;
       this.cal = circ && 2*circ.r > Math.max(blob.w,blob.h)*1.15 ? 2*circ.r : blob.h;   // pastille sur le disque : on calibre sur le disque
       if(circ && this.cal===2*circ.r) this.circ=circ;
     } else if(circ){
-      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=circ.r; this.r0=circ.r; this.rs=circ.r;
-      const sg=ringSigned(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(circ.r));
-      this.pol=sg.map(v=>Math.abs(v)>3?Math.sign(v):0); if(!this.pol.some(v=>v)) this.pol=sg.map(v=>Math.sign(v)); this.score0=Math.max(1, ringScore(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(circ.r),this.pol));
+      // manchon suivi (rayon du manchon), calibration sur le disque (circ.r)
+      const tr = circ.hub ? circ.hub.r : circ.r; this.hub=!!circ.hub;
+      this.mode="circle"; this.x=circ.x; this.y=circ.y; this.r=tr; this.r0=tr; this.rs=tr;
+      const sg=ringSigned(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(tr));
+      this.pol=sg.map(v=>Math.abs(v)>3?Math.sign(v):0); if(!this.pol.some(v=>v)) this.pol=sg.map(v=>Math.sign(v)); this.score0=Math.max(1, ringScore(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(tr),this.pol));
       this.bw=this.bh=2*circ.r; this.cal=2*circ.r; this.circ=circ;
     } else {
       this.mode = "template"; this.r = 14; this.x = x; this.y = y;
@@ -736,7 +778,7 @@ class Tracker {
     let res;
     if(this.mode==="circle") res = this.updCircle(img, ex, ey);
     else if(this.mode==="color") res = this.updColor(img, ex, ey); else res = this.updTpl(img, ex, ey);
-    if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true,k:this.mode==="circle"? this.r0/this.rs : 1}; }
+    if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true,k:this.mode==="circle" && !this.hub ? this.r0/this.rs : 1}; }
     this.lost++; this.px=this.x; this.py=this.y; this.x=ex; this.y=ey;
     return {x:ex,y:ey,ok:false};
   }
@@ -849,18 +891,24 @@ function analyze(samples, mpp, exoKey, partial){
       let top=-Infinity; for(let k=s; k>lastRep && k>=0 && t[s]-t[k]<=6; k--) if(y[k]>top) top=y[k];   // depuis la fin de la dernière vraie rép.
       // descente d'au moins la moitié de la montée (un squat sauté monte plus haut qu'il n'est descendu)
       eccOk = top - y[s] >= Math.max(0.8*minRom, 0.5*rom);
+      // remontée lente juste après une rép. (moins de 0,45 s) : c'est le rerackage, pas une nouvelle descente
+      if(reps.length && t[s]-reps[reps.length-1].t1 < 0.45) eccOk=false;
     }
     if(rom >= minRom && eccOk && (complete || !partial)){
       let pk=s; for(let k=s;k<=e;k++) if(v[k]>v[pk]) pk=k;
       let pe=e; for(let k=pk;k<=e;k++){ if(a[k] < -9.81){ pe=k; break; } }
       // instants de début et de fin interpolés au passage du seuil de vitesse
       const cross=(k0,k1)=>{ const d=v[k1]-v[k0]; return Math.abs(d)<1e-9? t[k0] : t[k0]+(rest-v[k0])/d*(t[k1]-t[k0]); };
-      const ts = s>0 ? cross(s-1,s) : t[s];
+      let ts = s>0 ? cross(s-1,s) : t[s], ys=y[s];
+      // temps mort en bas (pause, barre qui « traîne » avant de repartir) : la montée commence
+      // quand la barre dépasse 0,08 m/s, comme Metric (sinon une rép. marquée d'une pause paraît bien plus lente)
+      const go=0.08; let s2=s; while(s2<pk && v[s2]<go) s2++;
+      if(s2>s && s2>0 && v[s2]>v[s2-1]){ const f=(go-v[s2-1])/(v[s2]-v[s2-1]); ts=t[s2-1]+f*(t[s2]-t[s2-1]); ys=y[s2-1]+f*(y[s2]-y[s2-1]); }
       const te = e<n-1 ? cross(e,e+1) : t[e];
       const dur=Math.max(1e-3,te-ts);
       reps.push({s,e,pk,pe,t0:ts,t1:te,dur,rom,
-        mcv: rom/dur,
-        mpv: (y[pe]-y[s])/Math.max(1e-3,t[pe]-ts),
+        mcv: (y[e]-ys)/dur,
+        mpv: (y[pe]-ys)/Math.max(1e-3,t[pe]-ts),
         peak: v[pk]});
       lastRep=e;
     }
@@ -886,7 +934,7 @@ function grabFrom(el, w, h){
 }
 function openStage(){
   $("stageCard").hidden=false; $("prog").hidden=true; $("liveBig").hidden=true;
-  $("bGo").disabled=true; tapPt=null; tracker=null; calPts=[]; $("calInfo").textContent="";
+  $("bGo").disabled=true; tapPt=null; tracker=null; calPts=[]; $("calInfo").textContent=""; $("sizeWrap").hidden=true;
   // on efface l'image précédente (caméra en direct, autre vidéo)
   ctx.clearRect(0,0,cv.width,cv.height); setupImg=null; $("stage").classList.remove("lost","locked","mirror");
   $("stageCard").scrollIntoView({behavior:"smooth",block:"start"});
@@ -1003,6 +1051,7 @@ function setHint(t){ $("hint").textContent=t; }
 function setCal(m){ calMode=m; $("cAuto").setAttribute("aria-pressed",String(m==="auto")); $("cTwo").setAttribute("aria-pressed",String(m==="two")); $("twoWrap").hidden = m!=="two"; calPts=[]; updateCal(); redrawSetup(); }
 $("cAuto").onclick=()=>setCal("auto"); $("cTwo").onclick=()=>setCal("two");
 $("twoDist").addEventListener("input", updateCal);
+$("cSize").addEventListener("input", ()=>{ if(!tracker?.circ) return; tracker.cal=2*tracker.circ.r*(+$("cSize").value)/100; updateCal(); redrawSetup(); });
 $("diam").addEventListener("input", ()=>{ S.diam=$("diam").value; updateCal(); });
 
 cv.addEventListener("click", ev=>{
@@ -1016,7 +1065,7 @@ cv.addEventListener("click", ev=>{
 });
 function initTracker(){
   if(!tapPt||!setupImg) return;
-  tracker=new Tracker(setupImg, tapPt.x, tapPt.y);
+  tracker=new Tracker(setupImg, tapPt.x, tapPt.y); $("cSize").value=100;
   if(tracker.mode==="color"){ S.plateColor = tracker.col; }
   if(tracker.mode==="circle"){ S.lastTap = {x:Math.round(tracker.x), y:Math.round(tracker.y), W:setupImg.width}; }
   save();
@@ -1046,6 +1095,7 @@ function updateCal(){
     t += calPts.length<2 ? `Touchez maintenant ${calPts.length? "le 2e point":"deux points"} dont vous connaissez la distance (ex. haut et bas du disque).` : `${num(mpp*1000,1)} mm par pixel.`;
   }
   info.textContent=t;
+  $("sizeWrap").hidden = !(calMode==="auto" && tracker.circ && !running);
   $("bGo").disabled = !isFinite(mpp);
   setHint(isFinite(mpp) ? (src?.kind==="live" ? "Prêt. Appuyez sur Démarrer, puis faites votre série." : "Prêt. Choisissez l'image de départ si besoin, puis lancez l'analyse.") : "Repère choisi. Complétez la calibration.");
 }
@@ -1062,8 +1112,8 @@ function drawOverlay(trail){
     ctx.strokeStyle="#35e08a";
     if(tracker.mode==="color" && !running && tracker.blob){ const b=tracker.blob; ctx.strokeRect(b.x0-1,b.y0-1,b.w+2,b.h+2); }
     ctx.beginPath(); ctx.arc(tracker.x,tracker.y,6*lw/2,0,7); ctx.stroke();
-    if(tracker.mode==="circle"){ ctx.beginPath(); ctx.arc(tracker.x,tracker.y,tracker.rs,0,7); ctx.stroke(); }
-    else if(tracker.circ && !running){ ctx.beginPath(); ctx.arc(tracker.circ.x,tracker.circ.y,tracker.circ.r,0,7); ctx.stroke(); }
+    if(tracker.mode==="circle" && (running || !tracker.circ)){ ctx.beginPath(); ctx.arc(tracker.x,tracker.y,tracker.rs,0,7); ctx.stroke(); }
+    if(tracker.circ && !running){ ctx.beginPath(); ctx.arc(tracker.circ.x,tracker.circ.y,tracker.cal/2,0,7); ctx.stroke(); }
     if(tracker.mode==="template" && !running){ ctx.strokeRect(tracker.x-tracker.r,tracker.y-tracker.r,2*tracker.r+1,2*tracker.r+1); }
   }
   if(calMode==="two" && !running){
@@ -1195,7 +1245,7 @@ function sameImage(a,b){
 async function runFile(){
   const v=src.video, mpp=mppNow(); if(!isFinite(mpp)) return;
   if(src.file && !window.__noDecode && src.file.size < 150e6){
-    running=true; samples=[]; $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true;
+    running=true; samples=[]; $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true; $("sizeWrap").hidden=true;
     setHint("Analyse image par image…");
     holdWake();
     const t0=v.currentTime, ref=grabFrom(v,src.w,src.h), dur=(v.duration||1)-t0, me=src;
@@ -1223,7 +1273,7 @@ async function runFile(){
 let fileVideo=null;
 function runPlayback(mpp){
   const v=src.video;
-  running=true; samples=[]; recStart(); $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true;
+  running=true; samples=[]; recStart(); $("bGo").disabled=true; $("prog").hidden=false; $("scrubWrap").hidden=true; $("sizeWrap").hidden=true;
   setHint("Analyse en cours… gardez l'écran allumé.");
   const t0=v.currentTime, dur=v.duration||1; let lastT=-1, lastPF=-1, seen=0, drop=0;
   // La vidéo est lue au ralenti pour que le téléphone ait le temps de traiter chaque image :
@@ -1256,6 +1306,7 @@ function finishSet(mpp, origin){
   const video= fileVideo || recStop(); fileVideo=null;
   const res=analyze(samples, mpp, S.exo, false);
   res.mpp=mpp; res.exo=S.exo; res.load=S.load; res.date=Date.now(); res.origin=origin; res.demo=false;
+  res.cloudId=(crypto.randomUUID && crypto.randomUUID()) || null;   // même identifiant sur le téléphone et chez le coach
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
   try{ closeStage(); }catch(e){ reportErr(e); }
@@ -1443,10 +1494,29 @@ function renderResult(res){
       el.innerHTML=`<span class="n">${i+1}</span>
         <div><div class="v">${num(val)}<small>m/s${isFinite(lim)&&lim>0&&i>0&&loss>=lim?" · perte "+Math.round(loss)+" %":""}</small></div><div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
         <div class="det"><b>amplitude ${Math.round(r.rom*100)} cm</b><br>pic ${num(r.peak)} · ${num(r.dur,2)} s</div>`;
+      // fausse répétition (rerackage, pas en arrière…) : on peut l'effacer, en touchant deux fois
+      if(res.reps.length>1){
+        const x=document.createElement("button"); x.type="button"; x.className="rdel"; x.textContent="✕"; x.title="Effacer cette répétition"; x.setAttribute("aria-label","Effacer la répétition "+(i+1));
+        x.onclick=()=>{ if(!x.classList.contains("arm")){ x.classList.add("arm"); x.textContent="Effacer"; setTimeout(()=>{ x.classList.remove("arm"); x.textContent="✕"; },3500); return; } deleteRep(res,i); };
+        el.appendChild(x);
+      }
       reps.appendChild(el);
     });
   }
   drawChartV(res); drawChartP(res);
+}
+function repRows(reps){ return reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+(r.t0||0).toFixed(2),t1:+(r.t1||0).toFixed(2)})); }
+function deleteRep(res,i){
+  if(!res.reps[i] || res.reps.length<2) return;
+  res.reps.splice(i,1); res.edited=true;
+  // série enregistrée sur le téléphone
+  const hid=res.histId||res.hid, h=hid && S.history.find(x=>x.id===hid);
+  if(h){ h.reps=repRows(res.reps); h.edited=true; }
+  // série de la séance en cours
+  const sd=S.sess?.done?.[res.sessIdx]; if(sd && sd.date===res.date) sd.reps=res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}));
+  save(); renderHistory(); renderResult(res);
+  // et chez le coach
+  window.Cloud?.updateSet?.(res);
 }
 function drawChartV(res){
   const c=$("chartV"), g=c.getContext("2d"), W=c.width, H=c.height; g.clearRect(0,0,W,H);
@@ -1501,6 +1571,7 @@ function setSummary(reps){
 }
 function addSetToSess(res){
   const ss=S.sess, k=ss.done.length+1;
+  res.sessIdx=ss.done.length;
   ss.done.push({date:res.date, load:res.load, reps:res.reps.map(r=>({mcv:+r.mcv.toFixed(3),mpv:+r.mpv.toFixed(3),peak:+r.peak.toFixed(3),rom:+r.rom.toFixed(3),dur:+r.dur.toFixed(3)}))});
   save();   // la série est gardée tout de suite, quoi qu'il arrive ensuite
   const sm=setSummary(res.reps);
@@ -1632,7 +1703,8 @@ function storeHistory(res){
   // courbe de vitesse allégée (≤ 400 points) pour pouvoir revoir la série
   const n=res.t.length, step=Math.max(1,Math.ceil(n/400)), t=[], v=[];
   for(let i=0;i<n;i+=step){ t.push(+res.t[i].toFixed(2)); v.push(+res.v[i].toFixed(3)); }
-  S.history.unshift({id:"h"+res.date+Math.random().toString(36).slice(2,6), date:res.date, exo:res.exo, load:res.load, origin:res.origin,
+  const hid="h"+res.date+Math.random().toString(36).slice(2,6); res.hid=hid;
+  S.history.unshift({id:hid, cloudId:res.cloudId||null, date:res.date, exo:res.exo, load:res.load, origin:res.origin,
     sess: view==="ptest" ? "Test de profil" : view==="form" ? "Forme du jour" : view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
     reps:res.reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+r.t0.toFixed(2),t1:+r.t1.toFixed(2)})), t, v});
   S.history=S.history.slice(0,200); save(); renderHistory();
@@ -1665,7 +1737,7 @@ let histOpen=null;
 function openHist(id){
   const h=S.history.find(x=>x.id===id); if(!h) return;
   histOpen=id;
-  const res={histId:id, date:h.date, exo:h.exo, load:h.load, origin:h.origin||"", lost:0, t:h.t||[], v:h.v||[], reps:h.reps.map(r=>({...r, t0:r.t0??0, t1:r.t1??0})), P:[]};
+  const res={histId:id, cloudId:h.cloudId||null, date:h.date, exo:h.exo, load:h.load, origin:h.origin||"", lost:0, t:h.t||[], v:h.v||[], reps:h.reps.map(r=>({...r, t0:r.t0??0, t1:r.t1??0})), P:[]};
   lastResult=res; renderResult(res);
   $("histCard").classList.add("off"); $("resCard").hidden=false;
   scrollTo({top:0});
@@ -2065,6 +2137,6 @@ const mq=matchMedia("(prefers-color-scheme: dark)"); mq.addEventListener?.("chan
 </script>
 
 <script src="jump.js?v=8"></script>
-<script src="cloud.js?v=8"></script>
+<script src="cloud.js?v=9"></script>
 </body>
 </html>
