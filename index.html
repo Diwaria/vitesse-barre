@@ -142,6 +142,9 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .rep .rdel.arm{color:#fff;background:var(--bad);border-color:var(--bad)}
 .chart{width:100%;height:auto;display:block;border-radius:10px;background:var(--sunk)}
 .hist{display:flex;flex-direction:column;gap:6px}
+.hwrap{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:stretch}
+.hwrap .hx{padding:0 12px;border-radius:10px;color:var(--muted);background:var(--sunk);border:0;font-weight:600;min-width:44px}
+.hwrap .hx.arm{color:#fff;background:var(--bad)}
 .hrow{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 10px;background:var(--sunk);border-radius:10px;font-size:14px;font-variant-numeric:tabular-nums;cursor:pointer;text-align:left;border:0;width:100%;font-weight:400}
 .hrow b{font-weight:600}
 .off{display:none!important}
@@ -408,6 +411,11 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <span class="badge" id="resBadge" style="flex:0 0 auto"></span>
     </div>
     <p class="note" id="resMeta"></p>
+    <div class="row" id="keepRow" hidden>
+      <button type="button" class="primary" id="bKeep">Enregistrer la série</button>
+      <button type="button" id="bToss">Jeter</button>
+    </div>
+    <p class="note" id="keepMsg" hidden>Série enregistrée ✓</p>
     <div class="sum" id="sum"></div>
     <div class="reps" id="reps"></div>
     <div>
@@ -1312,7 +1320,10 @@ function finishSet(mpp, origin){
   try{ closeStage(); }catch(e){ reportErr(e); }
   lastResult=res;
   try{ renderResult(res); $("resCard").hidden=false; }catch(e){ reportErr(e); }
-  try{ storeHistory(res); }catch(e){ reportErr(e); }
+  const quick = !(view==="form" || view==="ptest" || (view==="sess" && S.sess && !S.sess.over));
+  // mesure rapide : on choisit d'enregistrer ou de jeter la série
+  if(quick){ res.pending=true; res.video=video; res.histView=view; $("keepRow").hidden=!setStats(res); }
+  else { try{ storeHistory(res); }catch(e){ reportErr(e); } }
   if(origin==="direct") Promise.resolve(video).then(b=>{ if(b && lastResult===res){ res.videoBlob=b; $("bSaveVid").hidden=false; } });
   if(view==="form"){ formDone(res, video); return; }
   if(view==="ptest"){ const key="ptest-"+(S.ptest?.start||res.date); try{ ptestDone(res); }catch(e){ reportErr(e); }
@@ -1322,9 +1333,19 @@ function finishSet(mpp, origin){
     addSetToSess(res);
     window.Cloud?.onSet({res, sess:snap, k, video});
   }
-  else { speakSummary(res); $("resCard").scrollIntoView({behavior:"smooth",block:"start"});
-    window.Cloud?.onSet({res, sess:{exo:res.exo, load:res.load, key:"quick-"+new Date(res.date).toISOString().slice(0,10), start:res.date, vloss:S.vloss}, k:1, video}); }
+  else { speakSummary(res); $("resCard").scrollIntoView({behavior:"smooth",block:"start"}); }
 }
+$("bKeep").onclick=()=>{
+  const res=lastResult; if(!res?.pending) return;
+  res.pending=false; $("keepRow").hidden=true;
+  try{ storeHistory(res); }catch(e){ reportErr(e); }
+  window.Cloud?.onSet({res, sess:{exo:res.exo, load:res.load, key:"quick-"+new Date(res.date).toISOString().slice(0,10), start:res.date, vloss:S.vloss}, k:1, video:res.video});
+  res.video=null; res.kept=true; $("keepMsg").hidden=false;
+};
+$("bToss").onclick=()=>{
+  const res=lastResult; if(!res?.pending) return;
+  res.pending=false; res.video=null; $("keepRow").hidden=true; $("resCard").hidden=true; lastResult=null; scrollTo({top:0,behavior:"smooth"});
+};
 
 /* Vidéo de la série : on enregistre l'image analysée (640 px, avec le tracé), légère à envoyer */
 let rec=null, recChunks=[];
@@ -1480,6 +1501,7 @@ function renderResult(res){
     + (res.lost>0.1? ` · Attention : repère perdu sur ${Math.round(res.lost*100)} % des images, résultats moins fiables.`:"")
     + (res.fps && res.fps<25? ` · Vidéo à ${Math.round(res.fps)} images/s seulement.`:"");
   const st=setStats(res), sum=$("sum"), reps=$("reps"); sum.textContent=""; reps.textContent="";
+  $("keepRow").hidden=!(res.pending && st); $("keepMsg").hidden=!res.kept;
   if(!st){
     sum.innerHTML=""; reps.innerHTML=`<p class="note">Aucune répétition détectée. Vérifiez que le repère reste visible pendant toute la série et que la calibration est correcte. Amplitude minimale pour cet exercice : ${Math.round(EXOS[res.exo].rom*100)} cm.</p>`;
   } else {
@@ -1728,7 +1750,12 @@ function renderHistory(){
     const b=document.createElement("button"); b.type="button"; b.className="hrow";
     b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · ${h.reps.length} rép.${h.sess? " · "+h.sess:""}</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round(lossAt(vals, vals.length-1))} %</span></span>`;
     b.onclick=()=>openHist(h.id);
-    box.appendChild(b);
+    // suppression directe depuis la liste (toucher deux fois)
+    const w=document.createElement("div"); w.className="hwrap";
+    const x=document.createElement("button"); x.type="button"; x.className="hx"; x.textContent="✕"; x.setAttribute("aria-label","Supprimer cette série");
+    x.onclick=()=>{ if(!x.classList.contains("arm")){ x.classList.add("arm"); x.textContent="Supprimer"; setTimeout(()=>{ x.classList.remove("arm"); x.textContent="✕"; },3500); return; }
+      S.history=S.history.filter(y=>y.id!==h.id); save(); renderHistory(); };
+    w.appendChild(b); w.appendChild(x); box.appendChild(w);
   });
   renderHome();
 }
