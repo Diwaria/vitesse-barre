@@ -547,6 +547,7 @@ const EXOS = {
   squat:{name:"Squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
   fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
   jsquat:{name:"Squat sauté",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
+  tbj:{name:"Trap bar jump",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,jump:true},
   hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv",mvt:0.25},
   rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true,mvt:0.2},
   dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true,mvt:0.15},
@@ -708,6 +709,16 @@ function findCircle(g,W,H,tx,ty){
   const [sc,cx,cy,r]=refine(pick, Math.max(14,pick[3]-3));
   return sc>=15 ? {score:sc,x:cx,y:cy,r} : null;
 }
+// signature du disque, insensible à la rotation : couleur moyenne par anneau (du centre au bord).
+// Sert à ne pas confondre le disque suivi avec un autre disque (rangé derrière, porté par quelqu'un qui passe)
+function plateSig(g,W,H,cx,cy,ra){
+  const NR=8, NA2=16, out=new Float32Array(NR*3).fill(NaN);
+  for(let i=0;i<NR;i++){ const rr=ra*(0.12+0.1*i); let a=0,b=0,c=0,n=0;
+    for(let j=0;j<NA2;j++){ const t=2*Math.PI*j/NA2, x=Math.round(cx+rr*Math.cos(t)), y=Math.round(cy+rr*Math.sin(t)); if(x<0||y<0||x>=W||y>=H) continue; const k=(y*W+x)*3; a+=g[k]; b+=g[k+1]; c+=g[k+2]; n++; }
+    if(n>=NA2/2){ out[i*3]=a/n; out[i*3+1]=1.5*b/n; out[i*3+2]=1.5*c/n; } }
+  return out;
+}
+function sigDist(p,q){ let s=0,n=0; for(let i=0;i<p.length;i++){ if(isNaN(p[i])||isNaN(q[i])) continue; s+=Math.abs(p[i]-q[i]); n++; } return n>=6? s/n : 99; }
 class Tracker {
   constructor(img, x, y, colModel){
     this.W = img.width; this.H = img.height; this.lost = 0;
@@ -743,6 +754,13 @@ class Tracker {
       const sg=ringSigned(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(tr));
       this.pol=sg.map(v=>Math.abs(v)>3?Math.sign(v):0); if(!this.pol.some(v=>v)) this.pol=sg.map(v=>Math.sign(v)); this.score0=Math.max(1, ringScore(grayOf(img),this.W,this.H,Math.round(circ.x),Math.round(circ.y),Math.round(tr),this.pol));
       this.bw=this.bh=2*circ.r; this.cal=2*circ.r; this.circ=circ;
+      // sauts (trap bar jump…) : suivi renforcé, la barre va très vite et le disque devient flou
+      this.jump=!!EXOS[S.exo]?.jump;
+      this.ar0=circ.r; this.sig=plateSig(grayOf(img),this.W,this.H,circ.x,circ.y,circ.r);
+      // autres disques immobiles dans l'image (rangés sur un rack, posés au sol) : pièges à éviter pendant le suivi
+      this.statics=[]; if(this.jump){ const g=grayOf(img), W=this.W, H=this.H, rr=Math.round(tr), loc=[];
+        for(let y=0;y<H;y+=4) for(let x=0;x<W;x+=4){ if(Math.hypot(x-circ.x,y-circ.y)<1.5*circ.r) continue; const v=ringScore(g,W,H,x,y,rr,this.pol); if(v>=this.score0*0.6) loc.push([v,x,y]); }
+        loc.sort((a,b)=>b[0]-a[0]); for(const c of loc){ if(this.statics.length>=12) break; if(this.statics.some(q=>Math.hypot(q[0]-c[1],q[1]-c[2])<rr)) continue; this.statics.push([c[1],c[2]]); } }
     } else {
       this.mode = "template"; this.r = 14; this.x = x; this.y = y;
       this.tpl = this.patch(this.gray(img), x, y, this.r);
@@ -784,13 +802,83 @@ class Tracker {
     const vx = this.x - this.px, vy = this.y - this.py;
     const ex = this.x + vx, ey = this.y + vy;
     let res;
-    if(this.mode==="circle") res = this.updCircle(img, ex, ey);
+    if(this.mode==="circle") res = this.jump ? this.updCircle(img, ex, ey) : this.updCircleStd(img, ex, ey);
     else if(this.mode==="color") res = this.updColor(img, ex, ey); else res = this.updTpl(img, ex, ey);
+    // disque perdu plusieurs images (sorti du cadre en haut d'un saut, flou) : on le recherche sur toute la hauteur, autour de la même verticale
+    if(!res && this.jump && this.mode==="circle" && this.lost>=3) res=this.reacquire(img);
     if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true,k:this.mode==="circle" && !this.hub ? this.r0/this.rs : 1}; }
-    this.lost++; this.px=this.x; this.py=this.y; this.x=ex; this.y=ey;
-    return {x:ex,y:ey,ok:false};
+    // perdu : la position prédite ralentit (sinon elle file hors de l'image et on ne retrouve plus le disque)
+    if(!this.jump){ this.lost++; this.px=this.x; this.py=this.y; this.x=ex; this.y=ey; return {x:ex,y:ey,ok:false}; }
+    this.lost++; const nx=this.x+0.6*vx, ny=this.y+0.6*vy; this.px=this.x; this.py=this.y;
+    this.x=Math.max(-this.H*0.3,Math.min(this.W*1.3,nx)); this.y=Math.max(-this.H*0.3,Math.min(this.H*1.3,ny));
+    if(this.lost===1) this.lx=this.px;
+    return {x:this.x,y:this.y,ok:false};
+  }
+  reacquire(img){
+    // le disque a pu changer de taille apparente (il s'approche de l'objectif en haut du saut) : on essaie plusieurs tailles
+    const g=grayOf(img), W=this.W, H=this.H, pol=this.pol, cx=Math.round(this.lx ?? this.x), r0=this.rs;
+    let bv=0,bx=0,by=0,br=r0;
+    for(const k of [0.85,1,1.15,1.3]){
+      const r=Math.round(r0*k), band=Math.round(Math.max(12,0.8*r)), ra=(this.ar0||this.rs)*k*this.rs/this.r0;
+      for(let y=0;y<H;y+=3) for(let x=cx-band;x<=cx+band;x+=3){ if(x<0||x>=W) continue; let v=ringScore(g,W,H,x,y,r,pol)*Math.exp(-((x-cx)*(x-cx))/(2*band*band)); if(v<this.score0*0.55) continue;
+        if(this.sig){ const d=sigDist(this.sig, plateSig(g,W,H,x,y,ra)); if(d>20) continue; v/=1+(d/14)*(d/14); }
+      if(this.statics?.some(q=>Math.hypot(q[0]-x,q[1]-y)<0.4*r)) continue;
+        if(v>bv){bv=v;bx=x;by=y;br=r;} } }
+    if(!bv) return null;
+    for(let it=0;it<2;it++){ let b=[bv,bx,by,br]; for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) for(let d2=-2;d2<=2;d2+=2){ const v=ringScore(g,W,H,bx+dx,by+dy,br+d2,pol); if(v>b[0]) b=[v,bx+dx,by+dy,br+d2]; } [bv,bx,by,br]=b; }
+    if(ringScore(g,W,H,bx,by,br,pol) < this.score0*0.55) return null;
+    this.rs=br; this.r=br; this.px=bx; this.py=by;   // pas d'élan après une reprise
+    return {x:bx,y:by};
   }
   updCircle(img, ex, ey){
+    const g=grayOf(img), W=this.W, H=this.H, r=Math.round(this.rs), pol=this.pol;
+    // recherche large quand la barre va vite (impulsion d'un squat sauté, images sautées) :
+    // centrée entre la dernière position et la position prédite ; grille de 2 px puis affinage au pixel
+    const sp=Math.hypot(ex-this.x, ey-this.y), R=Math.min(80, Math.round(24+this.lost*8+1.3*sp));
+    const cx0=Math.round((this.x+ex)/2), cy0=Math.round((this.y+ey)/2), S2=2*R+1, sc=new Float32Array(S2*S2).fill(-1);
+    // un disque ne se téléporte pas : on pénalise les cercles loin de la position attendue (genoux, banc, montants du rack)
+    // la barre bouge surtout verticalement : un saut de côté (vers un disque rangé derrière) est bien plus pénalisé
+    const sig=0.5*r+1.5*sp+8*this.lost, is2=1/(sig*sig), sgx=0.3*r+1.5*Math.abs(ex-this.x)+4*this.lost+3, isx=1/(sgx*sgx);
+    const at=(dx,dy)=>{ const k=(dy+R)*S2+dx+R; if(sc[k]<0) sc[k]=ringScore(g,W,H,cx0+dx,cy0+dy,r,pol)*Math.exp(-(dx*dx*isx+dy*dy*is2)); return sc[k]; };
+    // meilleurs cercles candidats (maxima séparés), départagés par l'apparence du disque
+    const cands=[];
+    for(let dy=-R;dy<=R;dy+=2) for(let dx=-R;dx<=R;dx+=2){ const v=at(dx,dy); if(v<=0) continue;
+      let k=0; while(k<cands.length && cands[k][0]>=v) k++;
+      if(k>=5) continue;
+      if(cands.slice(0,k).some(c=>Math.hypot(c[1]-dx,c[2]-dy)<0.6*r)) continue;
+      cands.splice(k,0,[v,dx,dy]); for(let m=cands.length-1;m>k;m--) if(Math.hypot(cands[m][1]-dx,cands[m][2]-dy)<0.6*r) cands.splice(m,1); if(cands.length>5) cands.length=5; }
+    if(!cands.length) return null;
+    const ra=(this.ar0||this.rs)*this.rs/this.r0;
+    let bv=-1,bx=0,by=0,bd=99,bf=-1;
+    // la barre ne fait pas de bond de côté : pas plus d'un rayon de la dernière position sûre
+    const xref = this.lost ? (this.lx ?? this.x) : this.x, xg = 1.0*(this.ar0||r)*this.rs/this.r0 + 2;
+    for(const c of cands){ let [v,cx1,cy1]=c; if(Math.abs(cx0+c[1]-xref) > xg) continue;
+      for(let dy=Math.max(-R,c[2]-2);dy<=Math.min(R,c[2]+2);dy++) for(let dx=Math.max(-R,c[1]-2);dx<=Math.min(R,c[1]+2);dx++){ const w=at(dx,dy); if(w>v){v=w;cx1=dx;cy1=dy;} }
+      const d = this.sig ? sigDist(this.sig, plateSig(g,W,H,cx0+cx1,cy0+cy1,ra)) : 0;
+      let fin = v/(1+(d/14)*(d/14));
+      // sur un disque immobile repéré au départ, alors que la barre n'y était pas : très peu probable
+      if(this.statics?.length){ const X=cx0+cx1, Y=cy0+cy1, near=q=>Math.hypot(q[0]-X,q[1]-Y)<0.4*r;
+        if(this.statics.some(near) && !this.statics.some(q=>Math.hypot(q[0]-this.x,q[1]-this.y)<0.4*r)) fin*=0.15; }
+      if(fin>bf){ bf=fin; bv=v; bx=cx1; by=cy1; bd=d; } }
+    if(bf<0) return null;
+    const rsc=ringScore(g,W,H,cx0+bx,cy0+by,r,pol);
+    if(this.sig && bd<12){ const ns=plateSig(g,W,H,cx0+bx,cy0+by,ra); for(let i=0;i<ns.length;i++) if(!isNaN(ns[i])&&!isNaN(this.sig[i])) this.sig[i]=0.95*this.sig[i]+0.05*ns[i]; }
+    if(window.__dbgSig) (window.__sigLog ||= []).push([+(rsc/this.score0).toFixed(2), +bd.toFixed(1), cx0+bx, cy0+by, r]);
+    // barre très rapide (saut) : le bord du disque est flou et contraste moins, mais l'apparence du disque reste reconnaissable
+    if(rsc < this.score0*0.45 && !(this.sig && bd<9 && rsc>=this.score0*0.2 && Math.hypot(cx0+bx-ex,cy0+by-ey)<0.6*r)) return null;   // et seulement dans le prolongement du mouvement
+    if(this.sig && bd>32) return null;   // ce n'est pas notre disque
+    const f=(a,m,c)=>{ const d=a-2*m+c; return Math.abs(d)<1e-6?0:Math.max(-0.5,Math.min(0.5,0.5*(a-c)/d)); };
+    const nb=(dx,dy)=> (dx<-R||dx>R||dy<-R||dy>R)? bv : at(dx,dy);
+    const ox=f(nb(bx-1,by),bv,nb(bx+1,by)), oy=f(nb(bx,by-1),bv,nb(bx,by+1));
+    const x=cx0+bx+ox, y=cy0+by+oy;
+    // taille apparente du disque (il s'éloigne ou se rapproche de l'objectif)
+    const rx=Math.round(x), ry=Math.round(y), rv={}; let br=0, bs=-1;
+    for(let d2=-5;d2<=5;d2++){ const v=ringScore(g,W,H,rx,ry,r+d2,pol); rv[d2]=v; if(v>bs){bs=v;br=d2;} }
+    const rf = r + br + (Math.abs(br)<5 ? f(rv[br-1],bs,rv[br+1]) : 0);
+    this.rs = this.rs*0.6 + rf*0.4; this.r=Math.round(this.rs);
+    return {x,y};
+  }
+  updCircleStd(img, ex, ey){
     const g=grayOf(img), W=this.W, H=this.H, r=Math.round(this.rs), pol=this.pol;
     // recherche large quand la barre va vite (impulsion d'un squat sauté, images sautées) :
     // centrée entre la dernière position et la position prédite ; grille de 2 px puis affinage au pixel
@@ -898,7 +986,7 @@ function analyze(samples, mpp, exoKey, partial){
     if(EXOS[exoKey].ecc){
       let top=-Infinity; for(let k=s; k>lastRep && k>=0 && t[s]-t[k]<=6; k--) if(y[k]>top) top=y[k];   // depuis la fin de la dernière vraie rép.
       // descente d'au moins la moitié de la montée (un squat sauté monte plus haut qu'il n'est descendu)
-      eccOk = top - y[s] >= Math.max(0.8*minRom, 0.5*rom);
+      eccOk = top - y[s] >= Math.max(0.8*minRom, EXOS[exoKey].jump ? 0 : 0.5*rom);   // saut : la montée (avec l'envol) dépasse largement la flexion
       // remontée lente juste après une rép. (moins de 0,45 s) : c'est le rerackage, pas une nouvelle descente
       if(reps.length && t[s]-reps[reps.length-1].t1 < 0.45) eccOk=false;
     }
@@ -922,6 +1010,11 @@ function analyze(samples, mpp, exoKey, partial){
     }
     lastE=Math.max(e,e0); i=lastE+1;
   }
+  // sauts : après la réception, le joueur se relève (montée lente) : ce n'est pas une rép.
+  // vitesse impossible pour une barre (le suivi a sauté sur autre chose) : on écarte la rép.
+  for(let k=reps.length-1;k>=0;k--) if(reps[k].peak>6) reps.splice(k,1);
+  // (référence : 2e meilleur pic, pour qu'un pic aberrant n'efface pas les vrais sauts)
+  if(EXOS[exoKey].jump && reps.length>1){ const pk=reps.map(r=>r.peak).sort((a,b)=>b-a), ref=pk[1]; for(let k=reps.length-1;k>=0;k--) if(reps[k].peak<0.6*ref) reps.splice(k,1); }
   return {t,y,x:xr,v,a,reps,P,fps};
 }
 
