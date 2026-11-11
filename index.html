@@ -103,6 +103,7 @@ button:disabled{opacity:.45;cursor:default}
 .setrow.todo{opacity:.55}
 .setrow.cur{outline:2px solid var(--accent)}
 .lossok{color:var(--ok)}.lossbad{color:var(--bad)}
+.rep .rl{font-size:13px;font-weight:700;color:var(--muted);margin:1px 0 3px}.rep .rl.lossbad{color:var(--bad)}
 .banner{position:absolute;left:8px;right:8px;bottom:8px;padding:12px 12px;border-radius:10px;font-weight:700;font-size:clamp(16px,4.8vw,22px);text-align:center;color:#fff;background:rgba(20,27,32,.78);transition:background .25s}
 .stage.mirror canvas{transform:scaleX(-1)}
 .stage{outline:0 solid transparent;transition:outline-color .2s}
@@ -578,6 +579,7 @@ const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"R
 const FORM_TIP={ok:"Séance normale.", warn:"Garder la séance, réduire un peu le volume.", bad:"Alléger nettement la séance ou l'adapter.", build:""};
 // Perte de vitesse d'une répétition par rapport à la 1re (ou à la meilleure jusque-là)
 // o = une série enregistrée : on garde la référence choisie au moment de la série
+function fixedRef(o){ const lr = o&&o.lossRef ? o.lossRef : S.lossRef, vr = pf(o&&o.lossRef ? o.vref : S.vref); return lr==="fixed" && vr>0; }
 function lossAt(vals, i, o){
   const lr = o&&o.lossRef ? o.lossRef : S.lossRef, vr = pf(o&&o.lossRef ? o.vref : S.vref);
   const ref = lr==="fixed" && vr>0 ? vr : lr==="first" ? vals[0] : Math.max(...vals.slice(0,i+1));
@@ -1298,7 +1300,7 @@ function drawHud(){
     ctx.fillStyle="#9AA5B1"; ctx.fillText(String(off+i+1), x0+pad, y);
     ctx.fillStyle="#F5F7FA"; ctx.font=`700 ${f}px Figtree, system-ui, sans-serif`; ctx.fillText(`${num(r.v)} m/s`, x0+pad+f*1.6, y);
     ctx.font=`600 ${f}px Figtree, system-ui, sans-serif`;
-    if(r.hit){ ctx.fillStyle="#FF6B35"; ctx.fillText(`−${Math.round(r.loss)} %`, x0+pad+f*1.6+ctx.measureText("0,00 m/s  ").width, y); }
+    if(r.hit || (fixedRef() && isFinite(r.loss))){ ctx.fillStyle= r.hit? "#FF6B35" : "#F5F7FA"; ctx.fillText(`−${Math.round(r.loss)} %`, x0+pad+f*1.6+ctx.measureText("0,00 m/s  ").width, y); }
     y+=lh;
   });
   if(lossTxt){ const hit=isFinite(lim)&&lim>0&&last.loss>=lim; ctx.fillStyle= hit? "#FF6B35" : "#F5F7FA"; ctx.font=`800 ${f}px Figtree, system-ui, sans-serif`; ctx.fillText(lossTxt + (hit? " · seuil atteint":""), x0+pad, y); }
@@ -1596,8 +1598,8 @@ function liveCheck(mpp){
     const rep=res.reps[liveSpoken]; liveSpoken++; lastRepT=rep.t1;
     const val=rep[S.metric];
     const vals=res.reps.slice(0,liveSpoken).map(r=>r[S.metric]); const loss=lossAt(vals, liveSpoken-1); const lim=pf(S.vloss);
-    $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}${liveSpoken>1? " · perte "+Math.round(loss)+" %":""}</small>`;
-    const hit = isFinite(lim) && lim>0 && liveSpoken>1 && loss>=lim;
+    $("liveBig").innerHTML = `${num(val)}<small> m/s · rép. ${liveSpoken}${(liveSpoken>1||fixedRef())? " · perte "+Math.round(loss)+" %":""}</small>`;
+    const hit = isFinite(lim) && lim>0 && (liveSpoken>1||fixedRef()) && loss>=lim;
     liveReps.push({v:val, loss, hit});
     let txt = S.voiceReps ? spokenNum(val) : "";
     if(hit){
@@ -1643,7 +1645,7 @@ function renderResult(res){
     sum.innerHTML=""; reps.innerHTML=`<p class="note">Aucune répétition détectée. Vérifiez que le repère reste visible pendant toute la série et que la calibration est correcte. Amplitude minimale pour cet exercice : ${Math.round(EXOS[res.exo].rom*100)} cm.</p>`;
   } else {
     const roms=res.reps.map(r=>r.rom*100), romAvg=roms.reduce((a,b)=>a+b,0)/roms.length;
-    const cells=[["Répétitions",String(st.vals.length)],["Meilleure",num(st.best)],["Dernière",num(st.last)],["Perte",Math.round(st.loss)+" %"],
+    const cells=[["Répétitions",String(st.vals.length)],["Meilleure",num(st.best)],["Dernière",num(st.last)],[fixedRef(res)? "Perte vs "+num(pf(res.vref))+" m/s" : "Perte",Math.round(st.loss)+" %"],
       ["Amplitude moyenne",Math.round(romAvg)+" cm"],["Écart d'amplitude",(roms.length>1? Math.round(Math.max(...roms)-Math.min(...roms)) : 0)+" cm"]];
     for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
     const lim=pf(S.vloss);
@@ -1651,7 +1653,7 @@ function renderResult(res){
       const val=r[st.m], z=zoneOf(val), loss=lossAt(st.vals, i, res);
       const el=document.createElement("div"); el.className="rep "+z;
       el.innerHTML=`<span class="n">${i+1}</span>
-        <div><div class="v">${num(val)}<small>m/s${isFinite(lim)&&lim>0&&i>0&&loss>=lim?" · perte "+Math.round(loss)+" %":""}</small></div><div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
+        <div><div class="v">${num(val)}<small>m/s</small></div>${(i>0||fixedRef(res))? `<div class="rl ${isFinite(lim)&&lim>0&&loss>=lim?"lossbad":""}">${loss>=-0.5? "perte "+Math.round(Math.max(0,loss))+" %" : "+"+Math.round(-loss)+" % au-dessus"}</div>`:""}<div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
         <div class="det"><b>amplitude ${Math.round(r.rom*100)} cm</b><br>pic ${num(r.peak)} · ${num(r.dur,2)} s</div>`;
       // fausse répétition (rerackage, pas en arrière…) : on peut l'effacer, en touchant deux fois
       if(res.reps.length>1){
@@ -1863,7 +1865,7 @@ function storeHistory(res){
   const n=res.t.length, step=Math.max(1,Math.ceil(n/400)), t=[], v=[];
   for(let i=0;i<n;i+=step){ t.push(+res.t[i].toFixed(2)); v.push(+res.v[i].toFixed(3)); }
   const hid="h"+res.date+Math.random().toString(36).slice(2,6); res.hid=hid;
-  S.history.unshift({id:hid, cloudId:res.cloudId||null, date:res.date, exo:res.exo, load:res.load, origin:res.origin,
+  S.history.unshift({id:hid, cloudId:res.cloudId||null, date:res.date, exo:res.exo, load:res.load, origin:res.origin, lossRef:res.lossRef||"", vref:res.vref||"",
     sess: view==="ptest" ? "Test de profil" : view==="form" ? "Forme du jour" : view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
     reps:res.reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+r.t0.toFixed(2),t1:+r.t1.toFixed(2)})), t, v});
   S.history=S.history.slice(0,200); save(); renderHistory();
@@ -1901,7 +1903,7 @@ let histOpen=null;
 function openHist(id){
   const h=S.history.find(x=>x.id===id); if(!h) return;
   histOpen=id;
-  const res={histId:id, cloudId:h.cloudId||null, date:h.date, exo:h.exo, load:h.load, origin:h.origin||"", lost:0, t:h.t||[], v:h.v||[], reps:h.reps.map(r=>({...r, t0:r.t0??0, t1:r.t1??0})), P:[]};
+  const res={histId:id, cloudId:h.cloudId||null, date:h.date, exo:h.exo, load:h.load, origin:h.origin||"", lossRef:h.lossRef||"", vref:h.vref||"", lost:0, t:h.t||[], v:h.v||[], reps:h.reps.map(r=>({...r, t0:r.t0??0, t1:r.t1??0})), P:[]};
   lastResult=res; renderResult(res);
   $("histCard").classList.add("off"); $("resCard").hidden=false;
   scrollTo({top:0});
