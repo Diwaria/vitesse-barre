@@ -15,7 +15,7 @@
 (function(){ try{ var c=window.VB_CONFIG||{}; if(!c.url||!c.key) return; var ref=(c.url.match(/https:\/\/([^.]+)/)||[])[1];
   if(!localStorage.getItem("sb-"+ref+"-auth-token")) document.documentElement.classList.add("gated"); }catch(e){} })();
 </script>
-<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}.errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:50;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}.errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:3000;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .errbar button{padding:6px 12px;font-size:13px}
 </style>
 </head>
@@ -241,7 +241,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 #gate .gmsg.err{color:#FF6B35}
 #gate .gfoot{display:flex;align-items:center;gap:10px;color:#9AA5B1;font-size:12px;font-weight:600;letter-spacing:.04em;margin-top:24px}
 #gate .qrp{width:40px;height:40px;border-radius:50%;background:#0B1220;border:2px solid #2E7CF6;display:grid;place-items:center;font-weight:800;font-size:12px;letter-spacing:.04em;color:#F5F7FA;flex:0 0 auto}
-.errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:50;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:3000;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .errbar button{padding:6px 12px;font-size:13px}
 </style>
 
@@ -539,6 +539,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
 <script>
 /* Erreurs : affichées en bas de l'écran (pour pouvoir les envoyer en capture), gardées pour la prochaine ouverture */
+try{ const st=localStorage.getItem("vbt.step"); if(st){ localStorage.removeItem("vbt.step"); const [k,tt]=st.split("|"); if(Date.now()-(+tt)<36e5) setTimeout(()=>reportErr(new Error("La dernière série s'est bloquée à l'étape « "+k+" ». Faites une capture de ce message pour le support.")),800); } }catch(e){}
 function reportErr(e){
   try{
     const msg=(e && (e.message||e.reason?.message||e.reason||e)) + "";
@@ -978,7 +979,8 @@ function quadFit(t, y, i, h){
   return [det(col(0))/D, det(col(1))/D, 2*det(col(2))/D];
 }
 function analyze(samples, mpp, exoKey, partial){
-  const P = samples.filter(s=>s.ok);
+  // temps strictement croissant (une image en double donnerait une vitesse infinie)
+  const P = []; for(const s of samples){ if(!s.ok || !isFinite(s.t) || !isFinite(s.x) || !isFinite(s.y)) continue; if(P.length && s.t<=P[P.length-1].t) continue; P.push(s); }
   const n = P.length; if(n<8) return {t:[],y:[],x:[],v:[],a:[],reps:[],P};
   const t=P.map(s=>s.t), X0=P[0].x, Y0=P[0].y;
   // échelle locale : le disque peut paraître plus petit en haut (plus loin de l'objectif)
@@ -1452,18 +1454,21 @@ function runPlayback(mpp){
   holdWake(); schedule();
   v.playbackRate=rate; v.play().catch(()=>{ setHint("La lecture a été bloquée. Touchez Analyser à nouveau."); running=false; $("bGo").disabled=false; });
 }
+// repère d'étape : si la page se bloque, on saura où au prochain lancement
+function step(k){ try{ if(k) localStorage.setItem("vbt.step", k+"|"+Date.now()); else localStorage.removeItem("vbt.step"); }catch(e){} }
 function finishSet(mpp, origin){
   running=false; releaseWake();
-  const video= fileVideo || recStop(); fileVideo=null;
-  const res=analyze(samples, mpp, S.exo, false);
+  step("fin-enregistrement"); const video= fileVideo || recStop(); fileVideo=null;
+  step("analyse"); const res=analyze(samples, mpp, S.exo, false);
   res.mpp=mpp; res.exo=S.exo; res.load=S.load; res.date=Date.now(); res.origin=origin; res.demo=false;
   res.lossRef=S.lossRef; res.vref = S.lossRef==="fixed" ? S.vref : "";
   res.cloudId=(crypto.randomUUID && crypto.randomUUID()) || null;   // même identifiant sur le téléphone et chez le coach
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
-  try{ closeStage(); }catch(e){ reportErr(e); }
+  step("fermeture"); try{ closeStage(); }catch(e){ reportErr(e); $("stageCard").hidden=true; $("stageCard").classList.remove("fs"); document.documentElement.classList.remove("fsOn"); }
   lastResult=res;
-  try{ renderResult(res); $("resCard").hidden=false; }catch(e){ reportErr(e); }
+  step("affichage"); try{ renderResult(res); $("resCard").hidden=false; }catch(e){ reportErr(e); }
+  step("");
   const quick = !(view==="form" || view==="ptest" || (view==="sess" && S.sess && !S.sess.over));
   // mesure rapide : on choisit d'enregistrer ou de jeter la série
   if(quick){ res.pending=true; res.video=video; res.histView=view; $("keepRow").hidden=!setStats(res); }
@@ -1523,12 +1528,15 @@ function banner(state, text){ const b=$("banner"); b.hidden=false; b.className="
 function liveLoop(){
   okSince=null; lostSince=null; liveK=0;
   const v=src.video, hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
-  const t0=performance.now();
+  const t0=performance.now(); let lastTm=-Infinity, lastPn=t0;
   const next=()=> hasRVFC? v.requestVideoFrameCallback(onFrame) : requestAnimationFrame(()=>onFrame(0,null));
   const onFrame=(now,meta)=>{ try{ frame(now,meta); }catch(e){ reportErr(e); if(src?.video===v) next(); } };
   const frame=(now,meta)=>{
     if(!src||src.kind!=="live"||src.video!==v) return;
-    const tm = meta? meta.mediaTime : (performance.now()-t0)/1000;
+    // horloge de l'image ; si le téléphone donne un temps qui n'avance pas (image répétée), on prend l'horloge de l'écran
+    const pn=performance.now(); let tm = meta? meta.mediaTime : (pn-t0)/1000;
+    if(!(isFinite(tm) && tm>lastTm)) tm = isFinite(lastTm) ? lastTm + Math.max(1, pn-lastPn)/1000 : (pn-t0)/1000;
+    lastTm=tm; lastPn=pn;
     const img=grabFrom(v,src.w,src.h); setupImg=img;
     const nowMs=performance.now();
     if(!tracker){
@@ -1684,7 +1692,7 @@ function drawChartV(res){
   const fg=css("--fg"), mu=css("--muted"), li=css("--line"), ac=css("--accent");
   if(!res.t.length){ g.fillStyle=mu; g.font="28px sans-serif"; g.fillText("Pas de données",30,60); return; }
   const L=58,R=12,T=30,B=40, t0=res.t[0], t1=res.t[res.t.length-1];
-  let vmax=Math.max(0.5,...res.v), vmin=Math.min(-0.5,...res.v); vmax=Math.ceil(vmax*4)/4; vmin=Math.floor(vmin*4)/4;
+  const fv=res.v.filter(isFinite); let vmax=Math.min(8,Math.max(0.5,...fv)), vmin=Math.max(-8,Math.min(-0.5,...fv)); vmax=Math.ceil(vmax*4)/4; vmin=Math.floor(vmin*4)/4;
   const X=t=>L+(t-t0)/(t1-t0||1)*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
   g.font="24px Figtree, sans-serif"; g.textBaseline="middle";
   for(let v=vmin; v<=vmax+1e-9; v+=0.25){ g.strokeStyle=li; g.lineWidth=Math.abs(v)<1e-9?2:1; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); if(Math.abs(v*2-Math.round(v*2))<1e-9){ g.fillStyle=mu; g.textAlign="right"; g.fillText(num(v,1),L-10,Y(v)); } }
