@@ -364,7 +364,8 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
           <div class="stepper"><button type="button" id="setsMinus" aria-label="Une série de moins">−</button><input id="setsN" type="number" inputmode="numeric" min="1" max="20" value="4"><button type="button" id="setsPlus" aria-label="Une série de plus">+</button></div></div>
         <label class="field"><span class="lbl">Charge (kg)</span><input id="load" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
         <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
-        <label class="field"><span class="lbl">Perte calculée par rapport à</span><select id="lossRef"><option value="best">la meilleure répétition</option><option value="first">la 1re répétition</option></select></label>
+        <label class="field"><span class="lbl">Perte calculée par rapport à</span><select id="lossRef"><option value="best">la meilleure répétition</option><option value="first">la 1re répétition</option><option value="fixed">une vitesse que je fixe</option></select></label>
+        <label class="field vrefWrap" hidden><span class="lbl">Vitesse de référence (m/s)</span><input id="vref" type="number" inputmode="decimal" min="0" step="0.01" placeholder="ex. 0,80"></label>
       </div>
       <div class="field"><span class="lbl">Zone de vitesse visée (m/s), facultatif</span>
         <div class="grid2"><input id="sZmin" type="number" inputmode="decimal" step="0.05" min="0" placeholder="min, ex. 0,60" aria-label="Vitesse minimale visée"><input id="sZmax" type="number" inputmode="decimal" step="0.05" min="0" placeholder="max, ex. 0,75" aria-label="Vitesse maximale visée"></div></div>
@@ -452,6 +453,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <label class="field"><span class="lbl">Exercice</span><select id="qExo"></select></label>
       <label class="field"><span class="lbl">Charge (kg)</span><input id="qLoad" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
       <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="qLoss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
+      <label class="field"><span class="lbl">Vitesse de référence (m/s), facultatif</span><input id="qVref" type="number" inputmode="decimal" min="0" step="0.01" placeholder="sinon : meilleure rép."></label>
     </div>
     <div class="actions">
       <button id="bLive" type="button" class="primary big">Caméra en direct</button>
@@ -575,8 +577,10 @@ const EXOS = {
 const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
 const FORM_TIP={ok:"Séance normale.", warn:"Garder la séance, réduire un peu le volume.", bad:"Alléger nettement la séance ou l'adapter.", build:""};
 // Perte de vitesse d'une répétition par rapport à la 1re (ou à la meilleure jusque-là)
-function lossAt(vals, i){
-  const ref = S.lossRef==="best" ? Math.max(...vals.slice(0,i+1)) : vals[0];
+// o = une série enregistrée : on garde la référence choisie au moment de la série
+function lossAt(vals, i, o){
+  const lr = o&&o.lossRef ? o.lossRef : S.lossRef, vr = pf(o&&o.lossRef ? o.vref : S.vref);
+  const ref = lr==="fixed" && vr>0 ? vr : lr==="first" ? vals[0] : Math.max(...vals.slice(0,i+1));
   return ref>0 ? (ref-vals[i])/ref*100 : 0;
 }
 const METRIC_NAME = {mcv:"moyenne concentrique",mpv:"moyenne propulsive",peak:"pic"};
@@ -618,6 +622,17 @@ function bindField(id, key, isCheck){
 renderExos();
 bindField("load","load"); bindField("metric","metric"); bindField("zmin","zmin"); bindField("zmax","zmax");
 bindField("vloss","vloss"); bindField("diam","diam"); bindField("voice","voice",true); bindField("voiceReps","voiceReps",true); bindField("lossRef","lossRef");
+// vitesse de référence : si elle est remplie, la perte se calcule par rapport à elle
+function syncVref(){
+  const fixed = S.lossRef==="fixed";
+  document.querySelectorAll(".vrefWrap").forEach(e=>e.hidden=!fixed);
+  $("vref").value = S.vref||""; $("qVref").value = fixed ? (S.vref||"") : ""; $("lossRef").value=S.lossRef;
+}
+$("lossRef").addEventListener("change", syncVref);
+$("vref").addEventListener("input", e=>{ S.vref=e.target.value; save(); syncVref(); if(lastResult) renderResult(lastResult); });
+$("qVref").addEventListener("input", e=>{ const v=e.target.value; S.vref=v; if(pf(v)>0) S.lossRef="fixed"; else if(S.lossRef==="fixed") S.lossRef="best"; save();
+  document.querySelectorAll(".vrefWrap").forEach(x=>x.hidden=S.lossRef!=="fixed"); $("lossRef").value=S.lossRef; $("vref").value=S.vref||""; if(lastResult) renderResult(lastResult); });
+syncVref();
 
 /* ---------- Voix ---------- */
 let voiceFr = null;
@@ -818,7 +833,8 @@ class Tracker {
     if(this.mode==="circle") res = this.jump ? this.updCircle(img, ex, ey) : this.updCircleStd(img, ex, ey);
     else if(this.mode==="color") res = this.updColor(img, ex, ey); else res = this.updTpl(img, ex, ey);
     // disque perdu plusieurs images (sorti du cadre en haut d'un saut, flou) : on le recherche sur toute la hauteur, autour de la même verticale
-    if(!res && this.jump && this.mode==="circle" && this.lost>=3) res=this.reacquire(img);
+    // en direct, la recherche complète est lourde sur téléphone : une image sur 4 seulement
+  if(!res && this.jump && this.mode==="circle" && this.lost>=3 && (!this.live || this.lost%4===3)) res=this.reacquire(img);
     if(res){ this.px=this.x; this.py=this.y; this.x=res.x; this.y=res.y; this.lost=0; return {x:res.x,y:res.y,ok:true,k:this.mode==="circle" && !this.hub ? this.r0/this.rs : 1}; }
     // perdu : la position prédite ralentit (sinon elle file hors de l'image et on ne retrouve plus le disque)
     if(!this.jump){ this.lost++; this.px=this.x; this.py=this.y; this.x=ex; this.y=ey; return {x:ex,y:ey,ok:false}; }
@@ -1155,7 +1171,7 @@ async function attachLive(stream){
   const [w,h]=sizeFor(video.videoWidth, video.videoHeight); cv.width=w; cv.height=h;
   src={kind:"live",video,stream,w,h}; fitStage();
   // caméra avant : image en miroir, comme dans l'appareil photo (la vitesse verticale ne change pas)
-  $("stage").classList.toggle("mirror", S.facing==="user");
+  $("stage").classList.remove("mirror");   // pas d'effet miroir : le texte incrusté reste lisible
   $("bFlip").hidden=false; $("bFlip").textContent = S.facing==="user" ? "Caméra arrière" : "Caméra avant";
   $("scrubWrap").hidden=true; $("bGo").textContent="● Enregistrer";
   setHint("Touchez le centre du disque (le bout de la barre) pour choisir le point à suivre.");
@@ -1198,7 +1214,7 @@ cv.addEventListener("click", ev=>{
 });
 function initTracker(){
   if(!tapPt||!setupImg) return;
-  tracker=new Tracker(setupImg, tapPt.x, tapPt.y); $("cSize").value=100;
+  tracker=new Tracker(setupImg, tapPt.x, tapPt.y); tracker.live = src?.kind==="live"; $("cSize").value=100;
   if(tracker.mode==="color"){ S.plateColor = tracker.col; }
   if(tracker.mode==="circle"){ S.lastTap = {x:Math.round(tracker.x), y:Math.round(tracker.y), W:setupImg.width}; }
   save();
@@ -1302,7 +1318,7 @@ async function saveVideo(blob){
 $("bSaveVid").onclick=()=>{ if(lastResult?.videoBlob) saveVideo(lastResult.videoBlob); };
 
 /* ---------- Analyse ---------- */
-$("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ if(running) stopLive(); else { startLive(); if(running){ banner("go","Enregistrement · à vous !"); say("C'est parti.", true); } } } else runFile(); };
+$("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ if(running){ if(stopping) return; stopping=true; $("bGo").disabled=true; $("bGo").textContent="Analyse…"; setTimeout(()=>{ try{ stopLive(); }catch(e){ reportErr(e); try{ closeStage(); }catch(_){} } stopping=false; }, 30); } else { startLive(); if(running){ banner("go","Enregistrement · à vous !"); say("C'est parti.", true); } } } else runFile(); };
 
 /* Analyse image par image : on décode le fichier soi-même (WebCodecs) pour traiter TOUTES les images,
    toujours les mêmes, quelle que soit la vitesse du téléphone. Même vidéo = mêmes résultats. */
@@ -1439,6 +1455,7 @@ function finishSet(mpp, origin){
   const video= fileVideo || recStop(); fileVideo=null;
   const res=analyze(samples, mpp, S.exo, false);
   res.mpp=mpp; res.exo=S.exo; res.load=S.load; res.date=Date.now(); res.origin=origin; res.demo=false;
+  res.lossRef=S.lossRef; res.vref = S.lossRef==="fixed" ? S.vref : "";
   res.cloudId=(crypto.randomUUID && crypto.randomUUID()) || null;   // même identifiant sur le téléphone et chez le coach
   res.lost = samples.length? samples.filter(s=>!s.ok).length/samples.length : 0;
   res.pathImg = setupImg; res.samplesPx = samples;
@@ -1490,7 +1507,9 @@ function recStop(){
   return new Promise(res=>{
     if(!rec || rec.state==="inactive"){ res(null); return; }
     const r=rec; rec=null;
-    r.onstop=()=>{ const b=recChunks.length? new Blob(recChunks,{type:r.mimeType||"video/mp4"}) : null; recChunks=[]; res(b); };
+    const done=b=>{ try{ r.stream?.getTracks().forEach(t=>t.stop()); }catch(e){} res(b); };
+    r.onstop=()=>{ const b=recChunks.length? new Blob(recChunks,{type:r.mimeType||"video/mp4"}) : null; recChunks=[]; done(b); };
+    setTimeout(()=>{ if(r.state!=="inactive") done(null); }, 4000);   // certains iPhone ne terminent jamais l'enregistrement
     try{ r.stop(); }catch(e){ res(null); }
   });
 }
@@ -1524,7 +1543,7 @@ function liveLoop(){
       if(r.ok){ lostSince=null; if(!liveStopSaid) banner("go","Barre prise en compte · à vous !"); }
       else { lostSince = lostSince ?? nowMs; if(nowMs-lostSince>400) banner("bad","Disque perdu · vérifiez le cadrage"); }
       if(++liveK%5===0){ try{ liveCheck(mppNow()); }catch(e){ reportErr(e); } }
-      if(liveSpoken>0 && tm-lastRepT>8){ say("Série terminée.", false); stopLive(); return; }
+      if(liveSpoken>0 && tm-lastRepT>8 && !stopping){ say("Série terminée.", false); stopLive(); return; }
       return next();
     }
     ctx.putImageData(img,0,0); drawOverlay();
@@ -1570,7 +1589,7 @@ function startLive(){
   $("bGo").textContent="Terminer la série"; $("bGo").disabled=false; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
   setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
 }
-let lastRepT=0;
+let lastRepT=0, stopping=false;
 function liveCheck(mpp){
   const res=analyze(samples, mpp, S.exo, true);
   while(liveSpoken < res.reps.length){
@@ -1603,7 +1622,7 @@ function setStats(res){
   const m=S.metric, vals=res.reps.map(r=>r[m]);
   if(!vals.length) return null;
   const best=Math.max(...vals), last=vals[vals.length-1], first=vals[0];
-  return {m, vals, best, last, first, loss:lossAt(vals, vals.length-1), avg:vals.reduce((p,q)=>p+q,0)/vals.length};
+  return {m, vals, best, last, first, loss:lossAt(vals, vals.length-1, res), avg:vals.reduce((p,q)=>p+q,0)/vals.length};
 }
 function renderResult(res){
   $("resBadge").textContent = res.origin==="direct"?"Direct": res.origin==="vidéo"?"Vidéo":"";
@@ -1629,7 +1648,7 @@ function renderResult(res){
     for(const [k,v] of cells){ const c=document.createElement("div"); c.className="stat"; c.innerHTML=`<b>${v}</b><span>${k}</span>`; sum.appendChild(c); }
     const lim=pf(S.vloss);
     res.reps.forEach((r,i)=>{
-      const val=r[st.m], z=zoneOf(val), loss=lossAt(st.vals, i);
+      const val=r[st.m], z=zoneOf(val), loss=lossAt(st.vals, i, res);
       const el=document.createElement("div"); el.className="rep "+z;
       el.innerHTML=`<span class="n">${i+1}</span>
         <div><div class="v">${num(val)}<small>m/s${isFinite(lim)&&lim>0&&i>0&&loss>=lim?" · perte "+Math.round(loss)+" %":""}</small></div><div class="bar"><i style="width:${Math.max(4,val/st.best*100)}%"></i></div></div>
@@ -1866,7 +1885,7 @@ function renderHistory(){
     if(dk!==day){ day=dk; const t=document.createElement("div"); t.className="lbl hday"; t.textContent=d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}); box.appendChild(t); }
     const vals=h.reps.map(r=>r[S.metric]); const best=Math.max(...vals);
     const b=document.createElement("button"); b.type="button"; b.className="hrow";
-    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · ${h.reps.length} rép.${h.sess? " · "+h.sess:""}</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round(lossAt(vals, vals.length-1))} %</span></span>`;
+    b.innerHTML=`<span><b>${EXOS[h.exo]?.name||h.exo}</b>${h.load? " · "+h.load+" kg":""}<br><span class="sub">${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} · ${h.reps.length} rép.${h.sess? " · "+h.sess:""}</span></span><span style="text-align:right"><b>${num(best)}</b> m/s<br><span class="sub">perte ${Math.round(lossAt(vals, vals.length-1, h))} %</span></span>`;
     b.onclick=()=>openHist(h.id);
     // suppression directe depuis la liste (toucher deux fois)
     const w=document.createElement("div"); w.className="hwrap";
