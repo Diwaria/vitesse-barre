@@ -111,6 +111,19 @@ button:disabled{opacity:.45;cursor:default}
 .banner.hold{background:rgba(182,123,5,.92)}
 .banner.go{background:#13a35a;box-shadow:0 0 0 3px rgba(19,163,90,.35),0 0 24px rgba(53,224,138,.7)}
 .banner.bad{background:rgba(207,61,28,.92)}
+/* Caméra en direct en plein écran */
+html.fsOn,html.fsOn body{overflow:hidden}
+#stageCard.fs{position:fixed;inset:0;z-index:1000;margin:0;border-radius:0;max-width:none;width:auto;background:#000;color:#fff;display:flex;flex-direction:column;gap:8px;padding:max(8px,env(safe-area-inset-top)) 10px max(10px,env(safe-area-inset-bottom));overflow-y:auto}
+#stageCard.fs #t-stage{display:none}
+#stageCard.fs .hint{font-size:14px;margin:0}
+#stageCard.fs .note{color:#cfd6da}
+#stageCard.fs .stage{flex:1 1 auto;min-height:45vh;display:flex;align-items:center;justify-content:center;border-radius:8px}
+#stageCard.fs .stage canvas{width:auto;height:auto}
+#stageCard.fs .livebig{font-size:54px}
+#stageCard.fs .banner{top:8px;bottom:auto;padding:8px 10px;font-size:15px}
+#stageCard.fs .livebig small{color:#cfd6da}
+#stageCard.fs #bGo{width:100%;font-size:20px;padding:14px}
+#stageCard.fs #bCancel,#stageCard.fs #bFlip{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.3)}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;border-radius:0;padding:8px 12px;font-size:14px}
 .seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
@@ -1035,7 +1048,7 @@ function grabFrom(el, w, h){
 }
 function openStage(){
   $("stageCard").hidden=false; $("prog").hidden=true; $("liveBig").hidden=true;
-  $("bGo").disabled=true; tapPt=null; tracker=null; calPts=[]; $("calInfo").textContent=""; $("sizeWrap").hidden=true;
+  $("bGo").disabled=true; tapPt=null; tracker=null; calPts=[]; $("calInfo").textContent=""; $("sizeWrap").hidden=true; $("calRow").hidden=false; $("calInfo").hidden=false;
   // on efface l'image précédente (caméra en direct, autre vidéo)
   ctx.clearRect(0,0,cv.width,cv.height); setupImg=null; $("stage").classList.remove("lost","locked","mirror");
   $("stageCard").scrollIntoView({behavior:"smooth",block:"start"});
@@ -1044,9 +1057,26 @@ function closeStage(){
   running=false;
   if(src?.stream) src.stream.getTracks().forEach(t=>t.stop());
   if(src?.video){ try{ src.video.pause(); }catch(e){} if(src.url) URL.revokeObjectURL(src.url); src.video.remove(); }
-  src=null; $("stageCard").hidden=true; $("banner").hidden=true; $("bFlip").hidden=true; $("stage").classList.remove("mirror","locked"); releaseWake();
+  src=null; exitFs(); $("stageCard").hidden=true; $("banner").hidden=true; $("bFlip").hidden=true; $("stage").classList.remove("mirror","locked"); releaseWake();
 }
 $("bCancel").onclick = closeStage;
+function enterFs(){ $("stageCard").classList.add("fs"); document.documentElement.classList.add("fsOn"); fitStage(); }
+function exitFs(){
+  if(!$("stageCard").classList.contains("fs")) return;
+  $("stageCard").classList.remove("fs"); document.documentElement.classList.remove("fsOn"); cv.style.width=cv.style.height="";
+  try{ if(document.fullscreenElement) document.exitFullscreen(); else if(document.webkitFullscreenElement) document.webkitExitFullscreen(); }catch(e){}
+}
+// l'image entière tient dans l'écran, sans être déformée
+function fitStage(){
+  if(!$("stageCard").classList.contains("fs")) return;
+  const st=$("stage"); cv.style.width=cv.style.height="0px";
+  const aw=st.clientWidth, ah=st.clientHeight; if(!aw||!ah) return;
+  const k=Math.min(aw/cv.width, ah/cv.height);
+  cv.style.width=Math.floor(cv.width*k)+"px"; cv.style.height=Math.floor(cv.height*k)+"px";
+}
+addEventListener("resize", ()=>fitStage());
+let fitBusy=false; try{ new ResizeObserver(()=>{ if(fitBusy) return; fitBusy=true; requestAnimationFrame(()=>{ fitStage(); fitBusy=false; }); }).observe($("stageCard")); }catch(e){}
+document.addEventListener("fullscreenchange", ()=>setTimeout(fitStage,50));
 
 async function loadFile(file){
   if(!file) return;
@@ -1105,6 +1135,8 @@ async function openCamera(){
 }
 $("bLive").onclick = async ()=>{
   unlockVoice(); $("liveMsg").hidden=true;
+  // plein écran du navigateur quand il existe (Android) ; sur iPhone, l'écran du direct occupe toute la page
+  try{ const de=document.documentElement; (de.requestFullscreen||de.webkitRequestFullscreen)?.call(de)?.catch?.(()=>{}); }catch(e){}
   let stream;
   try{ stream = await openCamera(); }
   catch(e){
@@ -1113,7 +1145,7 @@ $("bLive").onclick = async ()=>{
     if(S.sess){ $("sessMsg").hidden=false; $("sessMsg").textContent=$("liveMsg").textContent; }
     return;
   }
-  closeStage(); openStage();
+  closeStage(); openStage(); enterFs();
   await attachLive(stream);
   holdWake(); liveLoop();
 };
@@ -1121,12 +1153,12 @@ async function attachLive(stream){
   const video=document.createElement("video"); video.muted=true; video.playsInline=true; video.setAttribute("playsinline","");
   video.srcObject=stream; $("stage").appendChild(video); await video.play();
   const [w,h]=sizeFor(video.videoWidth, video.videoHeight); cv.width=w; cv.height=h;
-  src={kind:"live",video,stream,w,h};
+  src={kind:"live",video,stream,w,h}; fitStage();
   // caméra avant : image en miroir, comme dans l'appareil photo (la vitesse verticale ne change pas)
   $("stage").classList.toggle("mirror", S.facing==="user");
   $("bFlip").hidden=false; $("bFlip").textContent = S.facing==="user" ? "Caméra arrière" : "Caméra avant";
-  $("scrubWrap").hidden=true; $("bGo").textContent="Démarrer maintenant";
-  setHint(S.facing==="user" ? "Posez le téléphone de profil, écran vers vous. Touchez le centre du disque s'il n'est pas repéré." : "Posez le téléphone de profil. Touchez le centre du disque s'il n'est pas repéré tout seul.");
+  $("scrubWrap").hidden=true; $("bGo").textContent="● Enregistrer";
+  setHint("Touchez le centre du disque (le bout de la barre) pour choisir le point à suivre.");
 }
 // choix de la caméra avant d'ouvrir (direct et « Filmer ») : arrière ou avant (selfie)
 function syncCam(){
@@ -1139,7 +1171,7 @@ syncCam();
 $("bFlip").onclick = async ()=>{
   if(!src || src.kind!=="live") return;
   // série commencée : on l'annule pour changer de caméra
-  if(running){ running=false; samples=[]; await recStop(); $("liveBig").hidden=true; $("bGo").textContent="Démarrer maintenant"; }
+  if(running){ running=false; samples=[]; await recStop(); $("liveBig").hidden=true; $("calRow").hidden=false; $("calInfo").hidden=false; $("bGo").textContent="● Enregistrer"; }
   S.facing = S.facing==="user" ? "environment" : "user"; save(); syncCam();
   src.stream.getTracks().forEach(t=>t.stop()); src.video.remove();
   tracker=null; tapPt=null; calPts=[];
@@ -1198,7 +1230,7 @@ function updateCal(){
   info.textContent=t;
   $("sizeWrap").hidden = !(calMode==="auto" && tracker.circ && !running);
   $("bGo").disabled = !isFinite(mpp);
-  setHint(isFinite(mpp) ? (src?.kind==="live" ? "Prêt. Appuyez sur Démarrer, puis faites votre série." : "Prêt. Choisissez l'image de départ si besoin, puis lancez l'analyse.") : "Repère choisi. Complétez la calibration.");
+  setHint(isFinite(mpp) ? (src?.kind==="live" ? "Prêt. Appuyez sur Enregistrer, puis faites votre série. Touchez un autre point pour changer." : "Prêt. Choisissez l'image de départ si besoin, puis lancez l'analyse.") : "Repère choisi. Complétez la calibration.");
 }
 function css(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 function redrawSetup(){
@@ -1270,7 +1302,7 @@ async function saveVideo(blob){
 $("bSaveVid").onclick=()=>{ if(lastResult?.videoBlob) saveVideo(lastResult.videoBlob); };
 
 /* ---------- Analyse ---------- */
-$("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ running? stopLive() : startLive(); } else runFile(); };
+$("bGo").onclick = ()=>{ unlockVoice(); if(src?.kind==="live"){ if(running) stopLive(); else { startLive(); if(running){ banner("go","Enregistrement · à vous !"); say("C'est parti.", true); } } } else runFile(); };
 
 /* Analyse image par image : on décode le fichier soi-même (WebCodecs) pour traiter TOUTES les images,
    toujours les mêmes, quelle que soit la vitesse du téléphone. Même vidéo = mêmes résultats. */
@@ -1479,15 +1511,9 @@ function liveLoop(){
     const img=grabFrom(v,src.w,src.h); setupImg=img;
     const nowMs=performance.now();
     if(!tracker){
-      let found = S.plateColor ? autoFind(img, S.plateColor) : null;
-      if(found){ tapPt=found; tracker=new Tracker(img, found.x, found.y, S.plateColor); setCal("auto"); updateCal(); }
-      else if(S.lastTap && S.lastTap.W===img.width && (liveK++)%10===0){
-        // même emplacement que la dernière fois : on cherche le contour du disque au même endroit
-        const c=findCircle(grayOf(img), img.width, img.height, S.lastTap.x, S.lastTap.y);
-        if(c){ tapPt={x:c.x,y:c.y}; tracker=new Tracker(img, c.x, c.y); if(tracker.mode!=="circle") tracker=null; else { setCal("auto"); updateCal(); } }
-      }
+      // pas de sélection automatique : c'est l'utilisateur qui touche le point à suivre
       ctx.putImageData(img,0,0); drawOverlay();
-      banner("wait", (S.plateColor||S.lastTap)? "Recherche du disque… touchez son centre s'il n'est pas repéré" : "Touchez le centre du disque pour le sélectionner");
+      banner("wait","Touchez le centre du disque pour choisir le point à suivre");
       return next();
     }
     const r=tracker.update(img);
@@ -1506,12 +1532,10 @@ function liveLoop(){
       lostSince=null; okSince = okSince ?? nowMs;
       const ready = isFinite(mppNow());
       if(!ready) banner("wait","Disque repéré · complétez la calibration");
-      else if(nowMs-okSince < 1500) banner("hold","Disque repéré · ne touchez plus le téléphone…");
-      else { startLive(); banner("go","C'est bon, la barre est prise en compte · à vous !"); say("C'est prêt, à vous.", true); }
+      else banner("go","Disque suivi · appuyez sur Enregistrer");
     } else {
       okSince=null; lostSince = lostSince ?? nowMs;
-      banner("bad","Disque non visible · vérifiez le cadrage");
-      if(S.plateColor && tracker.mode!=="template" && nowMs-lostSince>2000){ tracker=null; tapPt=null; }
+      banner("bad","Disque non visible · touchez-le à nouveau ou vérifiez le cadrage");
     }
     next();
   };
@@ -1542,6 +1566,7 @@ function autoFind(img, col){
 function startLive(){
   const mpp=mppNow(); if(!isFinite(mpp)) return;
   running=true; samples=[]; liveSpoken=0; liveStopSaid=false; lastRepT=0; liveReps=[]; recStart();
+  $("sizeWrap").hidden=true; $("calRow").hidden=true; $("calInfo").hidden=true;
   $("bGo").textContent="Terminer la série"; $("bGo").disabled=false; $("liveBig").hidden=false; $("liveBig").innerHTML="–<small> m/s</small>";
   setHint("Série en cours. Chaque répétition est annoncée à la fin de la montée.");
 }
