@@ -571,9 +571,9 @@ const EXOS = {
   bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv",ecc:true,mvt:0.17},
   ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv",mvt:0.19},
   row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv",mvt:0.5},
-  clean:{name:"Épaulé",cat:"Haltérophilie",rom:0.30,metric:"mcv",floor:true,mvt:0.8},
-  cj:{name:"Épaulé-jeté",cat:"Haltérophilie",rom:0.25,metric:"mcv",floor:true,mvt:0.8},
-  sn:{name:"Arraché",cat:"Haltérophilie",rom:0.35,metric:"mcv",floor:true,mvt:1.0}
+  clean:{name:"Clean (épaulé)",cat:"Haltérophilie",rom:0.30,metric:"mcv",floor:true,oly:true,mvt:0.8},
+  cj:{name:"Clean & jerk (épaulé-jeté)",cat:"Haltérophilie",rom:0.25,metric:"mcv",floor:true,oly:true,mvt:0.8},
+  sn:{name:"Snatch (arraché)",cat:"Haltérophilie",rom:0.35,metric:"mcv",floor:true,oly:true,mvt:1.0}
 };
 // Forme du jour (défini tôt : utilisé dès l'ouverture par l'accueil)
 const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
@@ -1023,7 +1023,10 @@ function analyze(samples, mpp, exoKey, partial){
       // remontée lente juste après une rép. (moins de 0,45 s) : c'est le rerackage, pas une nouvelle descente
       if(reps.length && t[s]-reps[reps.length-1].t1 < 0.45) eccOk=false;
     }
-    if(rom >= minRom && eccOk && (complete || !partial)){
+    // haltérophilie : seule la tirée depuis le sol compte (la remontée du squat de réception ou le jeté partent de bien plus haut)
+    let fromFloor = true;
+    if(EXOS[exoKey].oly){ let lo=Infinity; for(let k=0;k<=s;k++) if(y[k]<lo) lo=y[k]; fromFloor = y[s]-lo < 0.25; }
+    if(rom >= minRom && eccOk && fromFloor && (complete || !partial)){
       let pk=s; for(let k=s;k<=e;k++) if(v[k]>v[pk]) pk=k;
       let pe=e; for(let k=pk;k<=e;k++){ if(a[k] < -9.81){ pe=k; break; } }
       // instants de début et de fin interpolés au passage du seuil de vitesse
