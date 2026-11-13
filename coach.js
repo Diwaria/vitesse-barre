@@ -12,7 +12,7 @@
   let user=null, profile=null, team=null, players=[], sets=[], formes=[], jumps=[], perfSets=[], perfPlayer="", sheetPlayer="", plans=[], tab="forme", filterPlayer="", weeks=6;
 
   function exOptions(sel){
-    const cats={}; for(const [k,e] of Object.entries(EXOS)) (cats[e.cat] ||= []).push([k,e]);
+    const cats={}; for(const [k,e] of Object.entries(EXOS)) if(!e.hide) (cats[e.cat] ||= []).push([k,e]);
     return Object.entries(cats).map(([c,l])=>`<optgroup label="${esc(c)}">${l.map(([k,e])=>`<option value="${k}"${k===sel?" selected":""}>${esc(e.name)}</option>`).join("")}</optgroup>`).join("");
   }
   function weekStart(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }

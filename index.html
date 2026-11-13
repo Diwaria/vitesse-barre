@@ -633,12 +633,13 @@ const EXOS = {
   hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv",mvt:0.25,setup:true},
   rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true,mvt:0.2},
   dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true,mvt:0.15},
-  bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv",ecc:true,mvt:0.17},
-  ohp:{name:"Développé militaire",cat:"Haut du corps",rom:0.15,metric:"mcv",mvt:0.19},
-  row:{name:"Rowing barre",cat:"Haut du corps",rom:0.10,metric:"mcv",mvt:0.5},
+  bench:{name:"Développé couché",cat:"Haut du corps",hide:true,rom:0.12,metric:"mcv",ecc:true,mvt:0.17},
+  ohp:{name:"Développé militaire",cat:"Haut du corps",hide:true,rom:0.15,metric:"mcv",mvt:0.19},
+  row:{name:"Rowing barre",cat:"Haut du corps",hide:true,rom:0.10,metric:"mcv",mvt:0.5},
   clean:{name:"Clean (épaulé)",cat:"Haltérophilie",rom:0.30,metric:"mcv",floor:true,oly:true,mvt:0.8},
-  cj:{name:"Clean & jerk (épaulé-jeté)",cat:"Haltérophilie",rom:0.25,metric:"mcv",floor:true,oly:true,mvt:0.8},
-  sn:{name:"Snatch (arraché)",cat:"Haltérophilie",rom:0.35,metric:"mcv",floor:true,oly:true,mvt:1.0}
+  jshrug:{name:"Jump shrug",cat:"Haltérophilie",rom:0.10,metric:"mcv",ecc:true,jump:true},
+  cj:{name:"Clean & jerk (épaulé-jeté)",cat:"Haltérophilie",hide:true,rom:0.25,metric:"mcv",floor:true,oly:true,mvt:0.8},
+  sn:{name:"Snatch (arraché)",cat:"Haltérophilie",hide:true,rom:0.35,metric:"mcv",floor:true,oly:true,mvt:1.0}
 };
 // Forme du jour (défini tôt : utilisé dès l'ouverture par l'accueil)
 const FORM_LBL={ok:"En forme", warn:"Fatigue légère", bad:"Fatigué", build:"Référence en cours"};
@@ -666,7 +667,7 @@ const pf = s => { const v = parseFloat(String(s).replace(",", ".")); return isFi
 function fillExos(sel){
   sel.textContent="";
   const cats={};
-  for(const [k,e] of Object.entries(EXOS)){ (cats[e.cat] ||= []).push([k,e]); }
+  for(const [k,e] of Object.entries(EXOS)){ if(!e.hide) (cats[e.cat] ||= []).push([k,e]); }
   for(const [c,list] of Object.entries(cats)){
     const g=document.createElement("optgroup"); g.label=c;
     for(const [k,e] of list){ const o=document.createElement("option"); o.value=k; o.textContent=e.name; g.appendChild(o); }
@@ -674,7 +675,7 @@ function fillExos(sel){
   }
 }
 function renderExos(){
-  if(!EXOS[S.exo]) S.exo="squat";
+  if(!EXOS[S.exo] || EXOS[S.exo].hide) S.exo="squat";
   for(const id of ["exoSel","qExo"]){
     const sel=$(id); if(!sel.options.length) fillExos(sel);
     sel.value=S.exo;
@@ -1937,7 +1938,7 @@ function addExoRow(e){
     <select aria-label="Exercice ${n}"></select>
     <div class="grid2"><div class="field"><span class="lbl">Séries</span><div class="stepper"><button type="button" data-d="-1" aria-label="Une série de moins">−</button><input type="number" inputmode="numeric" min="1" max="20" value="${e?.sets||3}"><button type="button" data-d="1" aria-label="Une série de plus">+</button></div></div>
     <label class="field"><span class="lbl">Charge (kg)</span><input class="ld" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 80" value="${e?.load??""}"></label></div>`;
-  const sel=row.querySelector("select"); fillExos(sel); sel.value=EXOS[e?.exo]? e.exo : S.exo;
+  const sel=row.querySelector("select"); fillExos(sel); sel.value=EXOS[e?.exo] && !EXOS[e.exo].hide ? e.exo : S.exo;
   stepperWire(row);
   row.querySelector(".head button").onclick=()=>{ row.remove(); [...box.children].forEach((r,i)=>{ r.querySelector(".head .lbl").textContent=`Exercice ${i+2}`; }); };
   box.appendChild(row);
