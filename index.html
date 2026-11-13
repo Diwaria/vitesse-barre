@@ -158,6 +158,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .rep .rdel.arm{color:#fff;background:var(--bad);border-color:var(--bad)}
 .chart{width:100%;height:auto;display:block;border-radius:10px;background:var(--sunk)}
 .hist{display:flex;flex-direction:column;gap:6px}
+.sdexo{display:flex;flex-direction:column;gap:6px}
+.sdexo h3{margin:6px 0 0;font-size:16px}
+.sdset{display:flex;flex-direction:column;gap:4px;width:100%;text-align:left;border:0;padding:8px 10px;border-radius:10px;background:var(--sunk);font-weight:400;font-size:14px;cursor:pointer;font-variant-numeric:tabular-nums;color:inherit}
+.sdset .top{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:baseline}
+.sdset .k{font-family:var(--display);font-weight:700;color:var(--muted)}
+.sdset .rv{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-start;align-self:stretch;padding-left:28px}
+.sdset .rv span{padding:2px 6px;border-radius:6px;background:var(--card, rgba(127,127,127,.12));font-size:13px}
+.sdset .rv span.b{font-weight:700}
 .hwrap{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:stretch}
 .hwrap .hx{padding:0 12px;border-radius:10px;color:var(--muted);background:var(--sunk);border:0;font-weight:600;min-width:44px}
 .hwrap .hx.arm{color:#fff;background:var(--bad)}
@@ -255,13 +263,13 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div><h1>Vitesse de barre</h1>
     <span class="sub" id="status">Vitesse concentrique par répétition</span></div>
   </header>
-  <nav class="topnav" id="topNav" data-v="sess quick settings hist profile form perf ptest jump">
+  <nav class="topnav" id="topNav" data-v="sess seances quick settings hist profile form perf ptest jump">
     <button type="button" id="bHome" aria-label="Retour à l'accueil">‹ Accueil</button>
     <h1 id="viewTitle"></h1>
   </nav>
 
   <div class="tiles" data-v="home">
-    <button type="button" class="tile main" id="tSess"><b id="tSessT">Commencer une séance</b><span id="tSessS">Exercice, séries, charge et perte de vitesse</span></button>
+    <button type="button" class="tile main" id="tSess"><b id="tSessT">Mes séances</b><span id="tSessS">Nouvelle séance ou séances passées</span></button>
     <button type="button" class="tile form" id="tForm"><b>Forme du jour</b><span id="tFormS">Test de 3 squats sautés</span></button>
     <button type="button" class="tile" id="tPtest"><b>Profil charge-vitesse</b><span id="tPtestS">Test charge par charge et 1RM</span></button>
     <button type="button" class="tile" id="tJump"><b>Tests de saut</b><span>CMJ, squat jump · hauteur par vidéo</span></button>
@@ -438,7 +446,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     </div>
   </section>
 
-  <section class="card" id="resCard" data-v="sess quick hist form ptest" hidden aria-labelledby="t-res">
+  <section class="card" id="resCard" data-v="sess seances quick hist form ptest" hidden aria-labelledby="t-res">
     <button type="button" id="bResBack" class="linkbtn" hidden>‹ Toutes les séries</button>
     <div class="row" style="justify-content:space-between">
       <h2 id="t-res" style="flex:0 1 auto">Résultats</h2>
@@ -542,6 +550,24 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       <label class="field"><span class="lbl">Diamètre du disque (cm)</span><input id="diam" type="number" inputmode="decimal" min="10" max="60" step="0.5" placeholder="45"></label>
     </div>
     <label class="toggle"><input id="voice" type="checkbox" checked> Annonces vocales</label>
+  </section>
+
+  <section class="card" id="seancesCard" data-v="seances" aria-labelledby="t-seances">
+    <div id="sdList" class="col">
+      <div class="sugg" id="sdCur" hidden><div id="sdCurTxt"></div><button type="button" id="sdResume" class="small primary">Reprendre</button></div>
+      <button type="button" class="primary big" id="sdNew">Nouvelle séance</button>
+      <h2 id="t-seances" class="lbl" style="margin:6px 0 0">Séances passées</h2>
+      <div class="hist" id="sdItems"></div>
+      <p class="note" id="sdEmpty">Vos séances apparaîtront ici : chaque séance regroupe tous ses exercices, avec la vitesse de chaque série.</p>
+    </div>
+    <div id="sdDetail" class="col" hidden>
+      <button type="button" class="small" id="sdBack" style="align-self:flex-start">‹ Toutes les séances</button>
+      <div><h2 id="sdTitle" style="margin:0"></h2><span class="sub" id="sdSub"></span></div>
+      <div class="sum" id="sdSum" style="grid-template-columns:repeat(3,1fr)"></div>
+      <div class="col" id="sdBody"></div>
+      <p class="note" style="margin:0">Touchez une série pour voir sa courbe de vitesse.</p>
+      <button type="button" id="sdDel">Supprimer cette séance</button>
+    </div>
   </section>
 
   <section class="card" id="histCard" data-v="hist" aria-labelledby="t-hist">
@@ -1685,6 +1711,7 @@ function renderResult(res){
   const fromHist=!!res.histId;
   $("bSaveVid").hidden=!res.videoBlob;
   $("bResBack").hidden=!fromHist; $("bDel").hidden=!fromHist;
+  $("bResBack").textContent = view==="seances" ? "‹ Retour à la séance" : "‹ Toutes les séries";
   $("t-res").textContent = fromHist? "Série enregistrée" : "Résultats";
   $("pathWrap").hidden = !res.pathImg;
   const exo=EXOS[res.exo]?.name||"";
@@ -1875,10 +1902,10 @@ function renderSess(){
   $("sessNext").hidden=!nx; if(nx) $("sessNext").textContent=`Exercice suivant : ${EXOS[nx.exo]?.name||nx.exo}`;
   $("sessPlan").hidden=!ss.plan; if(ss.plan) $("sessPlan").textContent=`${ss.plan.title||"Séance du coach"} · exercice ${ss.plan.idx+1} sur ${ss.plan.exercises.length}`;
   $("sessLive").textContent=`Série ${k+1} en direct`;
-  $("sessEnd").textContent= ss.over? "Fermer la séance" : "Terminer la séance";
+  $("sessEnd").textContent= "Terminer et enregistrer la séance";
   renderSugg();
 }
-$("sessCancel").onclick=()=>go("home");
+$("sessCancel").onclick=()=>go("seances");
 const clampSets=v=>Math.max(1,Math.min(20,Math.round(pf(v)||1)));
 $("setsMinus").onclick=()=>{ $("setsN").value=clampSets($("setsN").value)-1||1; };
 $("setsPlus").onclick=()=>{ $("setsN").value=Math.min(20,clampSets($("setsN").value)+1); };
@@ -1942,8 +1969,10 @@ $("sCam").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.
 $("sLib").addEventListener("change", e=>{ loadFile(e.target.files[0]); e.target.value=""; });
 $("sessEnd").onclick=()=>{
   const ss=S.sess; if(!ss) return;
-  if(!ss.over && ss.done.length){ const all=ss.done.map(d=>setSummary(d.reps)).filter(x=>x.n); if(all.length) say(`Séance terminée : ${ss.done.length} séries.`, true); }
-  S.sess=null; save(); renderSess(); go("home");
+  const key=ss.key, saved=S.history.some(h=>h.skey===key);
+  if(!ss.over && ss.done.length) say(`Séance enregistrée.`, true);
+  S.sess=null; save(); renderSess();
+  sdOpen = saved ? key : null; go("seances");
 };
 try{ renderSess(); }catch(e){ reportErr(e); }
 
@@ -1956,9 +1985,10 @@ function storeHistory(res){
   for(let i=0;i<n;i+=step){ t.push(+res.t[i].toFixed(2)); v.push(+res.v[i].toFixed(3)); }
   const hid="h"+res.date+Math.random().toString(36).slice(2,6); res.hid=hid;
   S.history.unshift({id:hid, cloudId:res.cloudId||null, date:res.date, exo:res.exo, load:res.load, origin:res.origin, lossRef:res.lossRef||"", vref:res.vref||"",
+    skey: view==="sess" && S.sess ? S.sess.key : "", sset: view==="sess" && S.sess ? S.sess.done.length+1 : 0,
     sess: view==="ptest" ? "Test de profil" : view==="form" ? "Forme du jour" : view==="sess" && S.sess ? (S.sess.plan?.title || "Séance") : "",
     reps:res.reps.map(r=>({mcv:r3(r.mcv),mpv:r3(r.mpv),peak:r3(r.peak),rom:r3(r.rom),dur:r3(r.dur),t0:+r.t0.toFixed(2),t1:+r.t1.toFixed(2)})), t, v});
-  S.history=S.history.slice(0,200); save(); renderHistory();
+  S.history=S.history.slice(0,400); save(); renderHistory();
 }
 function fmtDate(ts){ const d=new Date(ts); return d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})+" · "+d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); }
 function renderHistory(){
@@ -1995,17 +2025,87 @@ function openHist(id){
   histOpen=id;
   const res={histId:id, cloudId:h.cloudId||null, date:h.date, exo:h.exo, load:h.load, origin:h.origin||"", lossRef:h.lossRef||"", vref:h.vref||"", lost:0, t:h.t||[], v:h.v||[], reps:h.reps.map(r=>({...r, t0:r.t0??0, t1:r.t1??0})), P:[]};
   lastResult=res; renderResult(res);
-  $("histCard").classList.add("off"); $("resCard").hidden=false;
+  $("histCard").classList.add("off"); $("seancesCard").classList.add("off"); $("resCard").hidden=false;
   scrollTo({top:0});
 }
-function closeHist(){ histOpen=null; $("resCard").hidden=true; $("histCard").classList.toggle("off", view!=="hist"); }
+function closeHist(){ histOpen=null; $("resCard").hidden=true; $("histCard").classList.toggle("off", view!=="hist"); $("seancesCard").classList.toggle("off", view!=="seances"); }
 $("bResBack").onclick=closeHist;
 let delArm=0;
 $("bDel").onclick=()=>{
   const b=$("bDel");
   if(Date.now()-delArm>4000){ delArm=Date.now(); b.textContent="Toucher encore pour confirmer"; setTimeout(()=>{ if(b.textContent!=="Supprimer cette série") b.textContent="Supprimer cette série"; },4000); return; }
   delArm=0; b.textContent="Supprimer cette série";
-  S.history=S.history.filter(x=>x.id!==histOpen); save(); renderHistory(); closeHist();
+  S.history=S.history.filter(x=>x.id!==histOpen); save(); renderHistory(); closeHist(); if(view==="seances") renderSeances(sdOpen);
+};
+
+/* ---------- Mes séances : toutes les séries d'une même séance regroupées ---------- */
+let sdOpen=null;
+function sessionList(){
+  const map=new Map();
+  for(const h of S.history){
+    if(!h.sess || h.sess==="Test de profil" || h.sess==="Forme du jour") continue;
+    const k = h.skey || ("d"+new Date(h.date).toDateString()+"|"+h.sess);   // anciennes séries : même jour, même séance
+    let g=map.get(k); if(!g){ g={key:k, title:h.sess, sets:[]}; map.set(k,g); }
+    g.sets.push(h);
+  }
+  const out=[...map.values()];
+  for(const g of out){
+    g.sets.sort((a,b)=>a.date-b.date);
+    g.start=g.sets[0].date; g.end=g.sets[g.sets.length-1].date;
+    g.exos=[]; for(const h of g.sets){ let e=g.exos.find(x=>x.exo===h.exo); if(!e){ e={exo:h.exo, sets:[]}; g.exos.push(e); } e.sets.push(h); }
+    g.live = !!(S.sess && S.sess.key===g.key);
+  }
+  return out.sort((a,b)=>b.start-a.start);
+}
+function setLine(h, i){
+  const vals=h.reps.map(r=>r[S.metric]), n=vals.length;
+  const best=n? Math.max(...vals) : 0, mean=n? vals.reduce((a,b)=>a+b,0)/n : 0, loss=n? lossAt(vals, n-1, h) : 0;
+  const b=document.createElement("button"); b.type="button"; b.className="sdset";
+  b.innerHTML=`<span class="top"><span class="k">S${i+1}</span><span>${h.load? String(h.load).replace(".",",")+" kg · ":""}${n} rép. · moy. <b>${num(mean)}</b> · meilleure <b>${num(best)}</b></span><span class="${loss>=pf(S.vloss||20)?"lossbad":"lossok"}" style="font-weight:700">${loss>=0?"−":"+"}${Math.abs(Math.round(loss))} %</span></span>`
+    + (n? `<span class="rv">${vals.map(v=>`<span class="${v===best?"b":""}">${num(v)}</span>`).join("")}</span>` : "");
+  b.onclick=()=>openHist(h.id);
+  return {el:b, best, mean, n};
+}
+function renderSeances(openKey){
+  const all=sessionList(), g = openKey && all.find(x=>x.key===openKey);
+  sdOpen = g? g.key : null;
+  $("sdList").hidden=!!g; $("sdDetail").hidden=!g;
+  const ss=S.sess; $("sdCur").hidden=!ss; $("sdNew").hidden=!!ss;
+  if(ss) $("sdCurTxt").textContent=`Séance en cours : ${EXOS[ss.exo]?.name||""} · ${ss.done.length} série${ss.done.length>1?"s":""} faite${ss.done.length>1?"s":""}`;
+  if(!g){
+    const box=$("sdItems"); box.textContent=""; $("sdEmpty").hidden=all.length>0; $("t-seances").hidden=!all.length;
+    all.forEach(s=>{
+      const nr=s.sets.reduce((a,h)=>a+h.reps.length,0);
+      const b=document.createElement("button"); b.type="button"; b.className="hrow";
+      b.innerHTML=`<span><b>${new Date(s.start).toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</b>${s.live?" · en cours":""}<br><span class="sub">${s.exos.map(e=>EXOS[e.exo]?.name||e.exo).join(", ")}</span></span><span style="text-align:right"><b>${s.sets.length}</b> série${s.sets.length>1?"s":""}<br><span class="sub">${nr} rép.</span></span>`;
+      b.onclick=()=>{ renderSeances(s.key); scrollTo({top:0}); };
+      box.appendChild(b);
+    });
+    return;
+  }
+  const d0=new Date(g.start), min=Math.round((g.end-g.start)/6e4);
+  $("sdTitle").textContent=d0.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+  $("sdSub").textContent=`${g.title}${g.live?" (en cours)":""} · ${d0.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}${min>0? " · "+min+" min":""}`;
+  const nr=g.sets.reduce((a,h)=>a+h.reps.length,0);
+  $("sdSum").innerHTML=`<div class="stat"><b>${g.exos.length}</b><span>exercice${g.exos.length>1?"s":""}</span></div><div class="stat"><b>${g.sets.length}</b><span>séries</span></div><div class="stat"><b>${nr}</b><span>répétitions</span></div>`;
+  const body=$("sdBody"); body.textContent="";
+  g.exos.forEach(e=>{
+    const w=document.createElement("div"); w.className="sdexo";
+    const h3=document.createElement("h3"); h3.textContent=`${EXOS[e.exo]?.name||e.exo} · ${e.sets.length} série${e.sets.length>1?"s":""}`; w.appendChild(h3);
+    e.sets.forEach((h,i)=>w.appendChild(setLine(h,i).el));
+    body.appendChild(w);
+  });
+  $("sdDel").textContent="Supprimer cette séance"; $("sdDel").disabled=g.live;
+}
+$("sdNew").onclick=()=>go("sess");
+$("sdResume").onclick=()=>go("sess");
+$("sdBack").onclick=()=>{ renderSeances(null); scrollTo({top:0}); };
+let sdDelArm=0;
+$("sdDel").onclick=()=>{
+  const b=$("sdDel"), g=sessionList().find(x=>x.key===sdOpen); if(!g) return;
+  if(Date.now()-sdDelArm>4000){ sdDelArm=Date.now(); b.textContent="Toucher encore pour supprimer toute la séance"; return; }
+  sdDelArm=0; const ids=new Set(g.sets.map(h=>h.id));
+  S.history=S.history.filter(h=>!ids.has(h.id)); save(); renderHistory(); renderSeances(null);
 };
 
 /* ---------- Profil charge-vitesse : droite vitesse = a + b·charge, 1RM = charge à la vitesse au 1RM ---------- */
@@ -2341,7 +2441,7 @@ $("ptReset").onclick=()=>{ if(ptState().rows.some(r=>r.done) && !confirm("Efface
 
 /* ---------- Navigation entre les pages ---------- */
 let view="home";
-const TITLES={jump:"Tests de saut", ptest:"Profil charge-vitesse", perf:"Mes performances", form:"Forme du jour", sess:"Séance", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
+const TITLES={jump:"Tests de saut", ptest:"Profil charge-vitesse", perf:"Mes performances", form:"Forme du jour", sess:"Séance", seances:"Mes séances", quick:"Mesure rapide", settings:"Réglages", hist:"Séries enregistrées", profile:"Profil charge-vitesse"};
 function go(v){
   // chaque étape est protégée : une erreur ne doit jamais empêcher de changer de page
   const T=f=>{ try{ f(); }catch(e){ reportErr(e); } };
@@ -2356,6 +2456,7 @@ function go(v){
   if(v==="sess") T(()=>{ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; $("moreExos").textContent=""; (S.lastExos||[]).forEach(e=>addExoRow(e)); } renderExos(); renderSess(); syncZone(); });
   if(v==="quick") T(renderExos);
   if(v==="hist") T(renderHistory);
+  if(v==="seances") T(()=>renderSeances(sdOpen));
   if(v==="profile") T(renderProfile);
   if(v==="perf") T(renderPerf);
   if(v==="form") T(formEnter);
@@ -2368,14 +2469,15 @@ function go(v){
 addEventListener("popstate", e=>{ go(e.state?.v||"home"); });
 function renderHome(){
   const ss=S.sess;
-  $("tSessT").textContent = ss? "Reprendre la séance" : "Commencer une séance";
-  $("tSessS").textContent = ss? `${EXOS[ss.exo]?.name||""} · série ${Math.min(ss.done.length+1,ss.sets)} / ${ss.sets}${ss.over?" · terminée":""}` : "Exercice, séries, charge et perte de vitesse";
+  const nS=sessionList().length;
+  $("tSessT").textContent = ss? "Reprendre la séance" : "Mes séances";
+  $("tSessS").textContent = ss? `${EXOS[ss.exo]?.name||""} · série ${Math.min(ss.done.length+1,ss.sets)} / ${ss.sets}${ss.over?" · terminée":""}` : nS? `${nS} séance${nS>1?"s":""} · nouvelle séance` : "Commencer une nouvelle séance";
   const ft=(S.form?.tests||[]).filter(t=>new Date(t.date).toDateString()===new Date().toDateString()).pop();
   $("tFormS").innerHTML = ft? `<span class="fdot ${ft.level}"></span>Fait aujourd'hui · ${FORM_LBL[ft.level]}` : "Test de 3 squats sautés";
   const n=S.history.length;
   $("tHistS").textContent = n? `${n} série${n>1?"s":""} · revoir ou supprimer` : "Aucune série pour l'instant";
 }
-$("tSess").onclick=()=>go("sess");
+$("tSess").onclick=()=>go(S.sess? "sess" : "seances");
 $("tQuick").onclick=()=>go("quick");
 $("tHist").onclick=()=>go("hist");
 $("tSet").onclick=()=>go("settings");
