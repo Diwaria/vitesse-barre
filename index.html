@@ -565,7 +565,7 @@ const EXOS = {
   fsquat:{name:"Front squat",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,mvt:0.3},
   jsquat:{name:"Squat sauté",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true},
   tbj:{name:"Trap bar jump",cat:"Bas du corps",rom:0.20,metric:"mcv",ecc:true,jump:true},
-  hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv",mvt:0.25},
+  hip:{name:"Hip thrust",cat:"Bas du corps",rom:0.07,metric:"mcv",mvt:0.25,setup:true},
   rdl:{name:"RDL",cat:"Bas du corps",rom:0.15,metric:"mcv",ecc:true,mvt:0.2},
   dl:{name:"Soulevé de terre",cat:"Bas du corps",rom:0.20,metric:"mcv",floor:true,mvt:0.15},
   bench:{name:"Développé couché",cat:"Haut du corps",rom:0.12,metric:"mcv",ecc:true,mvt:0.17},
@@ -738,7 +738,27 @@ function findCircle(g,W,H,tx,ty){
     for(const c of cand){ if(c[0]<best*0.45) break; if(c[3]>=3*pick[3] && Math.hypot(c[1]-pick[1],c[2]-pick[2])<=Math.max(6,0.12*c[3])){ pick=c; break; } }
   }
   const [sc,cx,cy,r]=refine(pick, Math.max(14,pick[3]-3));
-  return sc>=15 ? {score:sc,x:cx,y:cy,r} : null;
+  if(sc<15) return null;
+  // disque à face texturée ou à lèvre (caoutchouc) : le bord le plus net est parfois la face intérieure ;
+  // si un anneau uniforme l'entoure et se termine par un vrai bord, le disque va jusqu'à ce bord
+  const ro=outerRim(g,W,H,cx,cy,r,sc);
+  return {score:sc,x:cx,y:cy,r:ro||r};
+}
+function outerRim(g,W,H,cx,cy,r,sc){
+  let best=0, br=0;
+  for(let r2=Math.round(1.07*r); r2<=Math.round(1.4*r); r2++){ const s2=ringScore(g,W,H,cx,cy,r2); if(s2>best){ best=s2; br=r2; } }
+  if(!br || best<0.4*sc) return 0;
+  // l'anneau entre les deux bords doit être uniforme tout autour (lèvre du disque), pas un fond qui varie
+  const A=48, L=[], In=[];
+  for(let i=0;i<A;i++){ const c=Math.cos(2*Math.PI*i/A), s=Math.sin(2*Math.PI*i/A);
+    const x=Math.round(cx+(r+br)/2*c), y=Math.round(cy+(r+br)/2*s), xi=Math.round(cx+0.85*r*c), yi=Math.round(cy+0.85*r*s);
+    if(x<0||y<0||x>=W||y>=H||xi<0||yi<0||xi>=W||yi>=H) continue; L.push(g[(y*W+x)*3]); In.push(g[(yi*W+xi)*3]); }
+  if(L.length<A*0.7) return 0;
+  const m=L.reduce((p,q)=>p+q,0)/L.length, sd=Math.sqrt(L.reduce((p,q)=>p+(q-m)*(q-m),0)/L.length);
+  const mi=In.reduce((p,q)=>p+q,0)/In.length;
+  if(window.__dbgRim) console.log("T: rim", r, br, Math.round(best), Math.round(sc), Math.round(sd), Math.round(m), Math.round(mi));
+  // bord extérieur aussi net que l'intérieur : c'est le vrai bord du disque ; sinon il faut une lèvre uniforme
+  return best>=0.9*sc || (sd<16 && Math.abs(m-mi)>12) ? br : 0;
 }
 // signature du disque, insensible à la rotation : couleur moyenne par anneau (du centre au bord).
 // Sert à ne pas confondre le disque suivi avec un autre disque (rangé derrière, porté par quelqu'un qui passe)
@@ -1050,6 +1070,9 @@ function analyze(samples, mpp, exoKey, partial){
   // vitesse impossible pour une barre (le suivi a sauté sur autre chose) : on écarte la rép.
   for(let k=reps.length-1;k>=0;k--) if(reps[k].peak>6) reps.splice(k,1);
   // (référence : 2e meilleur pic, pour qu'un pic aberrant n'efface pas les vrais sauts)
+  // hip thrust : la 1re montée est souvent l'installation (on soulève la barre posée pour se caler sur le banc) ;
+  // bien plus courte que les vraies rép., elle ne compte pas (bilan final seulement, pour ne pas décaler l'annonce en direct)
+  if(EXOS[exoKey].setup && !partial && reps.length>=3){ const ro=reps.slice(1).map(r=>r.rom).sort((a,b)=>a-b), med=ro[ro.length>>1]; if(reps[0].rom<0.65*med) reps.splice(0,1); }
   if(EXOS[exoKey].jump && reps.length>1){ const pk=reps.map(r=>r.peak).sort((a,b)=>b-a), ref=pk[1]; for(let k=reps.length-1;k>=0;k--) if(reps[k].peak<0.6*ref) reps.splice(k,1); }
   return {t,y,x:xr,v,a,reps,P,fps};
 }
