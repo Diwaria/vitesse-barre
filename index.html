@@ -6,7 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Vitesse barre">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0B1220">
 <link rel="icon" type="image/svg+xml" href="img/logo.svg">
 <link rel="apple-touch-icon" href="img/icon-180.png">
 <script src="config.js?v=6"></script>
@@ -41,21 +42,17 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700&family=Montserrat:wght@500;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
 <style>
 /* Layout: une colonne de poche, comme le minuteur : réglages, prise de vue, puis la série répétition par répétition. */
 :root{
-  --bg:#eef1f3; --surface:#ffffff; --sunk:#e2e7ea; --fg:#141b20; --muted:#5a6870; --line:#d2d9dd;
-  --accent:#2f56d6; --ok:#14836a; --warn:#b67b05; --bad:#cf3d1c;
-  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
-  --body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  /* Charte QRP : bleu nuit, bleu électrique, blanc cassé, orange pour les moments clés */
+  --bg:#0B1220; --surface:#111A2E; --sunk:#18233B; --fg:#F5F7FA; --muted:#9AA5B1; --line:#22304A;
+  --accent:#2E7CF6; --hot:#FF6B35; --ok:#2FC08F; --warn:#F2B23A; --bad:#FF6B35;
+  --display:"Montserrat",system-ui,sans-serif;
+  --body:"Montserrat",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0c1114; --surface:#151d22; --sunk:#0f161a; --fg:#e5ecef; --muted:#93a3ab; --line:#263239;
-  --accent:#7e9bff; --ok:#3cc49f; --warn:#e8b23e; --bad:#ff7a55; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#0c1114; --surface:#151d22; --sunk:#0f161a; --fg:#e5ecef; --muted:#93a3ab; --line:#263239;
-  --accent:#7e9bff; --ok:#3cc49f; --warn:#e8b23e; --bad:#ff7a55; color-scheme:dark}
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -253,6 +250,28 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
 #gate .qrp{width:40px;height:40px;border-radius:50%;background:#0B1220;border:2px solid #2E7CF6;display:grid;place-items:center;font-weight:800;font-size:12px;letter-spacing:.04em;color:#F5F7FA;flex:0 0 auto}
 .errbar{position:fixed;left:8px;right:8px;bottom:8px;z-index:3000;background:#3a0f06;color:#fff;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .errbar button{padding:6px 12px;font-size:13px}
+/* Charte QRP : Montserrat ExtraBold pour les titres, sobre et premium */
+h1{font-weight:800;font-size:24px;text-transform:none;letter-spacing:-.01em}
+h2{font-weight:800;font-size:17px;text-transform:none;letter-spacing:0}
+.topnav h1{font-size:19px}
+.lbl,.stat span,.badge,.ptab th{font-weight:700;letter-spacing:.08em}
+.actions .big,.big{font-weight:800;font-size:17px;text-transform:none;letter-spacing:.01em}
+.tile b,.pcard .ph b{font-weight:800;font-size:16px;text-transform:none;letter-spacing:0}
+.verdict b{font-weight:800;font-size:22px;text-transform:none}
+.stat b,.rep .v,.pcard .rm,.livebig{font-weight:800;letter-spacing:-.02em}
+.stat b{font-size:24px} .rep .v{font-size:24px} .livebig{font-size:64px}
+.setrow .k,.sdset .k,.rep .n,.ptrow .top .k{font-weight:800}
+.card{border-radius:16px;border-color:var(--line);box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
+button,.btn{border-radius:12px;background:var(--sunk);border-color:var(--line)}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 8px 24px rgba(46,124,246,.25)}
+.tile{background:var(--surface);border-color:var(--line);border-radius:16px}
+.tile.main{background:radial-gradient(120% 140% at 100% 0%,#3a8bff 0%,#2E7CF6 45%,#1f5fd0 100%);border-color:#2E7CF6;box-shadow:0 12px 32px rgba(46,124,246,.3)}
+.tile.form{border-color:var(--line);border-left:3px solid var(--hot)}
+.hlogo{border-radius:12px}
+.chips button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+.lossbad{color:var(--hot)}
+.qrpfoot{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.04em;margin:8px 0 4px;order:9}
+.qrpm{width:36px;height:36px;border-radius:50%;background:var(--bg);border:2px solid var(--accent);display:grid;place-items:center;font-weight:800;font-size:11px;color:var(--fg);letter-spacing:.02em}
 </style>
 
 <div class="errbar" id="errBar" hidden role="alert"><div><b>Un problème est survenu.</b> <span id="errTxt"></span></div>
@@ -579,6 +598,7 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
     <div class="hist" id="hist"></div>
     <p class="note" id="histEmpty">Vos séries analysées apparaîtront ici, sur ce téléphone. Touchez une série pour revoir la vitesse de chaque répétition.</p>
   </section>
+  <div class="qrpfoot" data-v="home"><span class="qrpm">QRP</span><span>Préparation physique · Football</span></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
@@ -1360,7 +1380,7 @@ function drawHud(){
   const lossTxt = last && liveReps.length>1 && last.loss>0 ? `Perte ${Math.round(last.loss)} %` : "";
   const lines=1+rows.length+(lossTxt?1:0);
   ctx.save();
-  ctx.font=`600 ${f}px Figtree, system-ui, sans-serif`; ctx.textBaseline="top";
+  ctx.font=`600 ${f}px Montserrat, system-ui, sans-serif`; ctx.textBaseline="top";
   let bw=ctx.measureText(head).width;
   for(const r of rows) bw=Math.max(bw, ctx.measureText(`10  ${num(r.v)} m/s  −00 %`).width);
   if(lossTxt) bw=Math.max(bw, ctx.measureText(lossTxt).width);
@@ -1371,12 +1391,12 @@ function drawHud(){
   const off=liveReps.length-rows.length;
   rows.forEach((r,i)=>{
     ctx.fillStyle="#9AA5B1"; ctx.fillText(String(off+i+1), x0+pad, y);
-    ctx.fillStyle="#F5F7FA"; ctx.font=`700 ${f}px Figtree, system-ui, sans-serif`; ctx.fillText(`${num(r.v)} m/s`, x0+pad+f*1.6, y);
-    ctx.font=`600 ${f}px Figtree, system-ui, sans-serif`;
+    ctx.fillStyle="#F5F7FA"; ctx.font=`700 ${f}px Montserrat, system-ui, sans-serif`; ctx.fillText(`${num(r.v)} m/s`, x0+pad+f*1.6, y);
+    ctx.font=`600 ${f}px Montserrat, system-ui, sans-serif`;
     if(r.hit || (fixedRef() && isFinite(r.loss))){ ctx.fillStyle= r.hit? "#FF6B35" : "#F5F7FA"; ctx.fillText(`−${Math.round(r.loss)} %`, x0+pad+f*1.6+ctx.measureText("0,00 m/s  ").width, y); }
     y+=lh;
   });
-  if(lossTxt){ const hit=isFinite(lim)&&lim>0&&last.loss>=lim; ctx.fillStyle= hit? "#FF6B35" : "#F5F7FA"; ctx.font=`800 ${f}px Figtree, system-ui, sans-serif`; ctx.fillText(lossTxt + (hit? " · seuil atteint":""), x0+pad, y); }
+  if(lossTxt){ const hit=isFinite(lim)&&lim>0&&last.loss>=lim; ctx.fillStyle= hit? "#FF6B35" : "#F5F7FA"; ctx.font=`800 ${f}px Montserrat, system-ui, sans-serif`; ctx.fillText(lossTxt + (hit? " · seuil atteint":""), x0+pad, y); }
   ctx.restore();
 }
 async function saveVideo(blob){
@@ -1766,7 +1786,7 @@ function drawChartV(res){
   const L=58,R=12,T=30,B=40, t0=res.t[0], t1=res.t[res.t.length-1];
   const fv=res.v.filter(isFinite); let vmax=Math.min(8,Math.max(0.5,...fv)), vmin=Math.max(-8,Math.min(-0.5,...fv)); vmax=Math.ceil(vmax*4)/4; vmin=Math.floor(vmin*4)/4;
   const X=t=>L+(t-t0)/(t1-t0||1)*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
-  g.font="24px Figtree, sans-serif"; g.textBaseline="middle";
+  g.font="24px Montserrat, sans-serif"; g.textBaseline="middle";
   for(let v=vmin; v<=vmax+1e-9; v+=0.25){ g.strokeStyle=li; g.lineWidth=Math.abs(v)<1e-9?2:1; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); if(Math.abs(v*2-Math.round(v*2))<1e-9){ g.fillStyle=mu; g.textAlign="right"; g.fillText(num(v,1),L-10,Y(v)); } }
   g.textAlign="center"; g.textBaseline="top"; g.fillStyle=mu;
   const span=t1-t0, stepT= span>40?10: span>15?5:2;
@@ -1789,7 +1809,7 @@ function drawChartP(res){
   g.lineWidth=lw; g.strokeStyle="rgba(255,255,255,.45)"; g.beginPath(); P.forEach((s,i)=> i?g.lineTo(s.x,s.y):g.moveTo(s.x,s.y)); g.stroke();
   g.strokeStyle="#35e08a"; g.lineWidth=lw*1.6;
   res.reps.forEach(r=>{ g.beginPath(); for(let k=r.s;k<=r.e;k++){ const s=P[k]; k===r.s?g.moveTo(s.x,s.y):g.lineTo(s.x,s.y);} g.stroke(); });
-  g.fillStyle="#fff"; g.font=`${Math.round(c.width/32)}px Figtree, sans-serif`; g.fillText("— montées (concentrique)", 12, c.height-14);
+  g.fillStyle="#fff"; g.font=`${Math.round(c.width/32)}px Montserrat, sans-serif`; g.fillText("— montées (concentrique)", 12, c.height-14);
 }
 function speakSummary(res, force){
   if(!force && res.demo) return;
@@ -2173,7 +2193,7 @@ function drawProfile(pts, fit, mvt, cid){
   const xmin=0, xmax=Math.ceil(xmax0*1.08/10)*10||10;
   const vmax=Math.ceil(Math.max(...pts.map(p=>p.v), mvt, fit? fit.a+fit.b*xmin:0)*1.1*10)/10, vmin=0;
   const X=x=>L+(x-xmin)/(xmax-xmin)*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
-  g.font="22px Figtree, sans-serif"; g.lineWidth=1;
+  g.font="22px Montserrat, sans-serif"; g.lineWidth=1;
   const vs = vmax>1.2? 0.25 : 0.1;
   g.textAlign="right"; g.textBaseline="middle";
   for(let v=0; v<=vmax+1e-9; v+=vs){ g.strokeStyle=li; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); g.fillStyle=mu; g.fillText(num(v, vs<0.2?1:2),L-10,Y(v)); }
@@ -2186,7 +2206,7 @@ function drawProfile(pts, fit, mvt, cid){
     const x0=Math.min(...pts.map(p=>p.load))*0.6, x1=fit.rm;
     g.strokeStyle=ac; g.lineWidth=3; g.beginPath(); g.moveTo(X(x0),Y(fit.a+fit.b*x0)); g.lineTo(X(x1),Y(fit.a+fit.b*x1)); g.stroke();
     g.fillStyle=bad; g.beginPath(); g.arc(X(fit.rm),Y(mvt),9,0,7); g.fill();
-    g.fillStyle=fg; g.textAlign= X(fit.rm)>W-120? "right":"left"; g.textBaseline="top"; g.font="600 24px Figtree, sans-serif";
+    g.fillStyle=fg; g.textAlign= X(fit.rm)>W-120? "right":"left"; g.textBaseline="top"; g.font="600 24px Montserrat, sans-serif";
     g.fillText(`1RM ≈ ${Math.round(fit.rm)} kg`, X(fit.rm)+(g.textAlign==="right"?-14:14), Y(mvt)+8);
   }
   for(const p of pts){ g.fillStyle=ac; g.strokeStyle=css("--surface"); g.lineWidth=3; g.beginPath(); g.arc(X(p.load),Y(p.v),8,0,7); g.fill(); g.stroke(); }
@@ -2249,7 +2269,7 @@ function drawForm(tests){
   let vmin=Math.min(...vs, ...ms.map(m=>m*0.88)), vmax=Math.max(...vs, ...ms);
   vmin=Math.floor(vmin*20)/20-0.05; vmax=Math.ceil(vmax*20)/20+0.05;
   const X=i=>L+(n<2?0.5:i/(n-1))*(W-L-R), Y=v=>T+(vmax-v)/(vmax-vmin)*(H-T-B);
-  g.font="22px Figtree, sans-serif"; g.textAlign="right"; g.textBaseline="middle";
+  g.font="22px Montserrat, sans-serif"; g.textAlign="right"; g.textBaseline="middle";
   const step=(vmax-vmin)>0.6?0.2:0.1;
   for(let v=Math.ceil(vmin/step)*step; v<=vmax+1e-9; v+=step){ g.strokeStyle=css("--line"); g.lineWidth=1; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(W-R,Y(v)); g.stroke(); g.fillStyle=css("--muted"); g.fillText(num(v,1),L-8,Y(v)); }
   // bandes : normale (vert) puis −5/−10 % (orange)

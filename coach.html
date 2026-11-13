@@ -15,21 +15,17 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
 <style>
 /* Layout: une colonne de poche, comme le minuteur : réglages, prise de vue, puis la série répétition par répétition. */
 :root{
-  --bg:#eef1f3; --surface:#ffffff; --sunk:#e2e7ea; --fg:#141b20; --muted:#5a6870; --line:#d2d9dd;
-  --accent:#2f56d6; --ok:#14836a; --warn:#b67b05; --bad:#cf3d1c;
-  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
-  --body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  /* Charte QRP : bleu nuit, bleu électrique, blanc cassé, orange pour les moments clés */
+  --bg:#0B1220; --surface:#111A2E; --sunk:#18233B; --fg:#F5F7FA; --muted:#9AA5B1; --line:#22304A;
+  --accent:#2E7CF6; --hot:#FF6B35; --ok:#2FC08F; --warn:#F2B23A; --bad:#FF6B35;
+  --display:"Montserrat",system-ui,sans-serif;
+  --body:"Montserrat",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0c1114; --surface:#151d22; --sunk:#0f161a; --fg:#e5ecef; --muted:#93a3ab; --line:#263239;
-  --accent:#7e9bff; --ok:#3cc49f; --warn:#e8b23e; --bad:#ff7a55; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#0c1114; --surface:#151d22; --sunk:#0f161a; --fg:#e5ecef; --muted:#93a3ab; --line:#263239;
-  --accent:#7e9bff; --ok:#3cc49f; --warn:#e8b23e; --bad:#ff7a55; color-scheme:dark}
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -116,6 +112,28 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .hrow b{font-weight:600}
 details summary{cursor:pointer;font-weight:600}
 details ol,details ul{padding-left:20px;margin:8px 0 0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+/* Charte QRP : Montserrat ExtraBold pour les titres, sobre et premium */
+h1{font-weight:800;font-size:24px;text-transform:none;letter-spacing:-.01em}
+h2{font-weight:800;font-size:17px;text-transform:none;letter-spacing:0}
+.topnav h1{font-size:19px}
+.lbl,.stat span,.badge,.ptab th{font-weight:700;letter-spacing:.08em}
+.actions .big,.big{font-weight:800;font-size:17px;text-transform:none;letter-spacing:.01em}
+.tile b,.pcard .ph b{font-weight:800;font-size:16px;text-transform:none;letter-spacing:0}
+.verdict b{font-weight:800;font-size:22px;text-transform:none}
+.stat b,.rep .v,.pcard .rm,.livebig{font-weight:800;letter-spacing:-.02em}
+.stat b{font-size:24px} .rep .v{font-size:24px} .livebig{font-size:64px}
+.setrow .k,.sdset .k,.rep .n,.ptrow .top .k{font-weight:800}
+.card{border-radius:16px;border-color:var(--line);box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
+button,.btn{border-radius:12px;background:var(--sunk);border-color:var(--line)}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 8px 24px rgba(46,124,246,.25)}
+.tile{background:var(--surface);border-color:var(--line);border-radius:16px}
+.tile.main{background:radial-gradient(120% 140% at 100% 0%,#3a8bff 0%,#2E7CF6 45%,#1f5fd0 100%);border-color:#2E7CF6;box-shadow:0 12px 32px rgba(46,124,246,.3)}
+.tile.form{border-color:var(--line);border-left:3px solid var(--hot)}
+.hlogo{border-radius:12px}
+.chips button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+.lossbad{color:var(--hot)}
+.wk{font-weight:800;font-size:15px;text-transform:none;letter-spacing:0}
+.code{font-weight:800}
 </style>
 <style>
 .tabs{display:flex;gap:6px;flex-wrap:wrap}
