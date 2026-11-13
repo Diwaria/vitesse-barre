@@ -101,6 +101,8 @@ button:disabled{opacity:.45;cursor:default}
 .setrow .m{font-size:14px}
 .setrow .l{font-weight:700}
 .setrow.todo{opacity:.55}
+.exorow{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:12px;background:var(--sunk)}
+.exorow .head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .setrow.cur{outline:2px solid var(--accent)}
 .lossok{color:var(--ok)}.lossbad{color:var(--bad)}
 .rep .rl{font-size:13px;font-weight:700;color:var(--muted);margin:1px 0 3px}.rep .rl.lossbad{color:var(--bad)}
@@ -359,11 +361,15 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
   <section class="card" id="sessCard" data-v="sess" aria-labelledby="t-sess">
     <div id="sessForm" class="col" hidden>
       <h2 id="t-sess">Nouvelle séance</h2>
-      <label class="field"><span class="lbl">Exercice</span><select id="exoSel"></select></label>
+      <label class="field"><span class="lbl">Exercice 1</span><select id="exoSel"></select></label>
       <div class="grid2">
         <div class="field"><span class="lbl">Nombre de séries</span>
           <div class="stepper"><button type="button" id="setsMinus" aria-label="Une série de moins">−</button><input id="setsN" type="number" inputmode="numeric" min="1" max="20" value="4"><button type="button" id="setsPlus" aria-label="Une série de plus">+</button></div></div>
         <label class="field"><span class="lbl">Charge (kg)</span><input id="load" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 100"></label>
+      </div>
+      <div id="moreExos" class="col"></div>
+      <button type="button" id="addExo">+ Ajouter un exercice</button>
+      <div class="grid2">
         <label class="field"><span class="lbl">Perte de vitesse max (%)</span><input id="vloss" type="number" inputmode="numeric" min="0" max="80" step="5" placeholder="20"></label>
         <label class="field"><span class="lbl">Perte calculée par rapport à</span><select id="lossRef"><option value="best">la meilleure répétition</option><option value="first">la 1re répétition</option><option value="fixed">une vitesse que je fixe</option></select></label>
         <label class="field vrefWrap" hidden><span class="lbl">Vitesse de référence (m/s)</span><input id="vref" type="number" inputmode="decimal" min="0" step="0.01" placeholder="ex. 0,80"></label>
@@ -382,6 +388,19 @@ html.gated #gate{display:flex} html.gated body{overflow:hidden}
       </div>
       <p class="note" id="sessPlan" hidden></p>
       <div class="sets" id="sessSets"></div>
+      <div class="row" id="sessAdj" style="gap:8px">
+        <button type="button" class="small" id="sessSetMinus">− 1 série</button>
+        <button type="button" class="small" id="sessSetPlus">+ 1 série</button>
+        <button type="button" class="small" id="sessAddExo">+ Ajouter un exercice</button>
+      </div>
+      <div class="exorow" id="sAddBox" hidden>
+        <label class="field"><span class="lbl">Exercice à ajouter</span><select id="sAddSel"></select></label>
+        <div class="grid2">
+          <div class="field"><span class="lbl">Séries</span><div class="stepper"><button type="button" data-d="-1">−</button><input id="sAddSets" type="number" inputmode="numeric" min="1" max="20" value="3"><button type="button" data-d="1">+</button></div></div>
+          <label class="field"><span class="lbl">Charge (kg)</span><input id="sAddLoad" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 80"></label>
+        </div>
+        <div class="row"><button type="button" class="small" id="sAddCancel">Annuler</button><button type="button" class="small primary" id="sAddOk">Ajouter à la séance</button></div>
+      </div>
       <div class="sugg" id="sessSugg" hidden><div id="suggTxt"></div><button type="button" id="suggUndo" class="small"></button></div>
       <div class="actions" id="sessActions">
         <button type="button" class="primary big" id="sessLive"></button>
@@ -1850,6 +1869,8 @@ function renderSess(){
     box.appendChild(row);
   }
   $("sessActions").hidden=!!ss.over;
+  if(ss.plan?.exercises?.[ss.plan.idx]) ss.plan.exercises[ss.plan.idx].sets=ss.sets;
+  $("sessSetMinus").disabled = ss.sets<=Math.max(1, ss.done.length);
   const nx = ss.over && ss.plan && ss.plan.exercises[ss.plan.idx+1];
   $("sessNext").hidden=!nx; if(nx) $("sessNext").textContent=`Exercice suivant : ${EXOS[nx.exo]?.name||nx.exo}`;
   $("sessPlan").hidden=!ss.plan; if(ss.plan) $("sessPlan").textContent=`${ss.plan.title||"Séance du coach"} · exercice ${ss.plan.idx+1} sur ${ss.plan.exercises.length}`;
@@ -1861,14 +1882,49 @@ $("sessCancel").onclick=()=>go("home");
 const clampSets=v=>Math.max(1,Math.min(20,Math.round(pf(v)||1)));
 $("setsMinus").onclick=()=>{ $("setsN").value=clampSets($("setsN").value)-1||1; };
 $("setsPlus").onclick=()=>{ $("setsN").value=Math.min(20,clampSets($("setsN").value)+1); };
+// séance à plusieurs exercices : chaque exercice a son nombre de séries et sa charge
+function stepperWire(box){ box.querySelectorAll(".stepper button").forEach(b=>b.onclick=()=>{ const i=b.parentNode.querySelector("input"); i.value=clampSets(+clampSets(i.value)+(+b.dataset.d)); }); }
+function addExoRow(e){
+  const box=$("moreExos"), n=box.children.length+2, row=document.createElement("div"); row.className="exorow";
+  row.innerHTML=`<div class="head"><span class="lbl">Exercice ${n}</span><button type="button" class="small" aria-label="Enlever cet exercice">✕ Enlever</button></div>
+    <select aria-label="Exercice ${n}"></select>
+    <div class="grid2"><div class="field"><span class="lbl">Séries</span><div class="stepper"><button type="button" data-d="-1" aria-label="Une série de moins">−</button><input type="number" inputmode="numeric" min="1" max="20" value="${e?.sets||3}"><button type="button" data-d="1" aria-label="Une série de plus">+</button></div></div>
+    <label class="field"><span class="lbl">Charge (kg)</span><input class="ld" type="number" inputmode="decimal" min="0" step="2.5" placeholder="ex. 80" value="${e?.load??""}"></label></div>`;
+  const sel=row.querySelector("select"); fillExos(sel); sel.value=EXOS[e?.exo]? e.exo : S.exo;
+  stepperWire(row);
+  row.querySelector(".head button").onclick=()=>{ row.remove(); [...box.children].forEach((r,i)=>{ r.querySelector(".head .lbl").textContent=`Exercice ${i+2}`; }); };
+  box.appendChild(row);
+}
+$("addExo").onclick=()=>addExoRow();
+function formExos(){
+  const list=[{exo:$("exoSel").value, sets:clampSets($("setsN").value), load:$("load").value}];
+  for(const r of $("moreExos").children) list.push({exo:r.querySelector("select").value, sets:clampSets(r.querySelector(".stepper input").value), load:r.querySelector(".ld").value});
+  return list;
+}
 $("sessGo").onclick=()=>{
   unlockVoice();
-  S.exo=$("exoSel").value; S.load=$("load").value; S.vloss=$("vloss").value; S.lastSets=clampSets($("setsN").value);
+  const list=formExos(); S.vloss=$("vloss").value;
+  S.lastExos=list.slice(1); S.lastSets=list[0].sets;
+  if(list.length>1){ S.load=list[0].load; save(); startPlan({title:"Ma séance", exercises:list.map(e=>({...e, vloss:S.vloss}))}); return; }
+  S.exo=$("exoSel").value; S.load=$("load").value; S.lastSets=clampSets($("setsN").value);
   S.sess={exo:S.exo, load:S.load, sets:S.lastSets, start:Date.now(), key:"s"+Date.now(), vloss:S.vloss, done:[], over:false};
   save(); renderSess();
   say(`Séance de ${EXOS[S.exo].name}, ${S.lastSets} séries. Pose le téléphone et lance la série 1.`, true);
 };
 $("sessLive").onclick=()=>{ $("bLive").click(); };
+// en cours de séance : une série de plus ou de moins, un exercice de plus
+$("sessSetMinus").onclick=()=>{ const ss=S.sess; if(!ss) return; ss.sets=Math.max(1, ss.done.length, ss.sets-1); if(ss.done.length>=ss.sets && ss.done.length) ss.over=true; save(); renderSess(); };
+$("sessSetPlus").onclick=()=>{ const ss=S.sess; if(!ss) return; ss.sets=Math.min(30, ss.sets+1); ss.over=false; save(); renderSess(); };
+$("sessAddExo").onclick=()=>{ const sel=$("sAddSel"); if(!sel.options.length) fillExos(sel); sel.value=S.sess?.exo||S.exo; $("sAddBox").hidden=false; $("sAddBox").scrollIntoView({behavior:"smooth",block:"center"}); };
+$("sAddCancel").onclick=()=>{ $("sAddBox").hidden=true; };
+stepperWire($("sAddBox"));
+$("sAddOk").onclick=()=>{
+  const ss=S.sess; if(!ss) return;
+  if(!ss.plan) ss.plan={title:"Ma séance", key:ss.key, exercises:[{exo:ss.exo, sets:ss.sets, load:ss.load, vloss:ss.vloss}], idx:0};
+  ss.plan.exercises.push({exo:$("sAddSel").value, sets:clampSets($("sAddSets").value), load:$("sAddLoad").value, vloss:ss.vloss});
+  $("sAddBox").hidden=true; $("sAddLoad").value=""; save(); renderSess();
+  say(`${EXOS[$("sAddSel").value].name} ajouté à la séance.`, true);
+};
 // Séance programmée : un ou plusieurs exercices à la suite
 function startPlanExercise(plan, idx){
   const e=plan.exercises[idx]; if(!e) return;
@@ -2297,7 +2353,7 @@ function go(v){
   document.querySelectorAll("[data-v]").forEach(el=>el.classList.toggle("off", !el.dataset.v.split(" ").includes(v)));
   $("viewTitle").textContent=TITLES[v]||"";
   $("resCard").hidden=true; T(closeHist);
-  if(v==="sess") T(()=>{ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; } renderExos(); renderSess(); syncZone(); });
+  if(v==="sess") T(()=>{ unlockVoice(); if(!S.sess){ $("setsN").value=S.lastSets||4; $("load").value=S.load||""; $("moreExos").textContent=""; (S.lastExos||[]).forEach(e=>addExoRow(e)); } renderExos(); renderSess(); syncZone(); });
   if(v==="quick") T(renderExos);
   if(v==="hist") T(renderHistory);
   if(v==="profile") T(renderProfile);
